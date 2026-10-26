@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 import { Logo } from "@/components/brand/logo";
-import { safeNext } from "@/lib/auth-redirect";
+import { safeNext, signInErrorMessage } from "@/lib/auth-redirect";
 import { SignInForm } from "./sign-in-form";
 import { OrbitPanel } from "./orbit-panel";
 
@@ -33,6 +33,6 @@ export default function SignInPage({ searchParams }: PageProps<"/sign-in">) {
 async function SignInFormWithParams({ searchParams }: Pick<PageProps<"/sign-in">, "searchParams">) {
   const params = await searchParams;
   const next = safeNext(params.next);
-  const error = typeof params.error === "string" ? params.error : undefined;
+  const error = signInErrorMessage(params.error);
   return <SignInForm next={next} initialError={error} />;
 }

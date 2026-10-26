@@ -24,10 +24,10 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
+  // getClaims checks the token's signature locally (refreshing it when it has expired), so
+  // most requests don't wait on a round trip to Supabase Auth. Pages still call getUser().
+  const { data, error } = await supabase.auth.getClaims();
+  const user = data?.claims.sub ? data.claims : null;
 
   // If Auth itself is down, don't bounce a signed-in user to the sign-in page.
   // Let the request through; the page checks again and shows a retry screen.

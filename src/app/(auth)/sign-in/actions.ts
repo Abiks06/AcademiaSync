@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseEnv } from "@/lib/env";
-import { friendlyAuthError, safeNext } from "@/lib/auth-redirect";
+import { authErrorCode, friendlyAuthError, safeNext } from "@/lib/auth-redirect";
 
 export type SignInState = { status: "idle" | "sent" | "error"; message?: string; email?: string };
 
@@ -45,8 +45,7 @@ export async function signInWithProvider(formData: FormData) {
   // Supabase answers a disabled provider with a raw JSON error page, so check first.
   const next = safeNext(formData.get("next"));
   if (!(await isProviderEnabled(provider))) {
-    const name = provider === "google" ? "Google" : "Microsoft";
-    const params = new URLSearchParams({ error: `${name} sign-in isn't available yet. Use your email instead.` });
+    const params = new URLSearchParams({ error: provider === "google" ? "google_off" : "azure_off" });
     if (next !== "/projects") params.set("next", next);
     redirect(`/sign-in?${params}`);
   }
@@ -59,7 +58,7 @@ export async function signInWithProvider(formData: FormData) {
       scopes: provider === "azure" ? "email" : undefined,
     },
   });
-  if (error) redirect(`/sign-in?error=${encodeURIComponent(friendlyAuthError(error))}`);
+  if (error) redirect(`/sign-in?error=${authErrorCode(error)}`);
   redirect(data.url);
 }
 

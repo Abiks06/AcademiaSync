@@ -59,6 +59,7 @@ const STATUS_LABEL: Record<DocumentStatus, string> = { draft: "Draft", in_review
 const AUTOSAVE_IDLE_MS = 45_000;
 
 export function DocumentWorkspace(props: WorkspaceProps) {
+  const [signedOut, setSignedOut] = useState(false);
   if (!props.liveReady) {
     return (
       <Notice
@@ -78,11 +79,13 @@ export function DocumentWorkspace(props: WorkspaceProps) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ room, schema: SCHEMA_VERSION }),
           });
+          setSignedOut(res.status === 401);
           if (res.ok) return await res.json();
           const { error } = (await res.json().catch(() => ({}))) as { error?: string };
           const reason = error ?? "Couldn't open this document.";
-          // Signed out, no access, or an outdated editor: retrying won't help. Anything else is retried.
-          return { error: [401, 403, 409].includes(res.status) ? "forbidden" : "error", reason };
+          // No access, or an outdated editor: retrying won't help. Anything else, including a
+          // lapsed sign-in, is retried, so the tab reconnects once the person signs in again.
+          return { error: res.status === 403 || res.status === 409 ? "forbidden" : "error", reason };
         } catch {
           return { error: "error", reason: "Couldn't reach AcademiaSync. Check your connection." };
         }
@@ -96,13 +99,13 @@ export function DocumentWorkspace(props: WorkspaceProps) {
       }}
     >
       <RoomProvider id={roomIdFor(props.document.id)} initialPresence={{ schema: SCHEMA_VERSION }}>
-        <Shell {...props} />
+        <Shell {...props} signedOut={signedOut} />
       </RoomProvider>
     </LiveblocksProvider>
   );
 }
 
-function Shell(props: WorkspaceProps) {
+function Shell({ signedOut, ...props }: WorkspaceProps & { signedOut: boolean }) {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const markOpened = useCallback(() => setOpened(true), []);
@@ -119,6 +122,25 @@ function Shell(props: WorkspaceProps) {
   }
 
   // Never swap out an editor that's already open: unsynced text lives in it.
+  if (signedOut && opened) {
+    return (
+      <>
+        <p role="alert" className="mx-auto mb-4 max-w-[78rem] rounded-xl border border-amber/40 bg-amber/10 px-4 py-2.5 text-sm text-amber">
+          Your sign-in has ended, so changes are waiting in this tab.{" "}
+          <a href={`/sign-in?next=${encodeURIComponent(window.location.pathname)}`} target="_blank" rel="noopener" className="font-semibold underline">
+            Sign in again in a new tab
+          </a>{" "}
+          and this one reconnects by itself. Don&apos;t close it until it says all changes are saved.
+        </p>
+        <ClientSideSuspense fallback={<EditorSkeleton />}>
+          <SchemaGate {...props} onOpened={markOpened} />
+        </ClientSideSuspense>
+      </>
+    );
+  }
+  if (signedOut) {
+    return <Notice title="Your sign-in has ended" body="Sign in again to open this manuscript." project={props.project} signIn />;
+  }
   if (connectionError && !opened) {
     return <Notice title="Couldn't open this manuscript" body={connectionError} project={props.project} reload />;
   }
@@ -607,7 +629,9 @@ function StatusSelect({ documentId, initial, canEdit }: { documentId: string; in
   );
 }
 
-function Notice({ title, body, project, reload }: { title: string; body: string; project: { id: string; name: string }; reload?: boolean }) {
+type NoticeProps = { title: string; body: string; project: { id: string; name: string }; reload?: boolean; signIn?: boolean };
+
+function Notice({ title, body, project, reload, signIn }: NoticeProps) {
   return (
     <div role="alert" className="mx-auto max-w-md py-24 text-center">
       <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-iris-soft text-iris">
@@ -616,6 +640,11 @@ function Notice({ title, body, project, reload }: { title: string; body: string;
       <h1 className="mt-5 font-serif text-3xl">{title}</h1>
       <p className="mt-3 text-muted">{body}</p>
       <div className="mt-6 flex justify-center gap-2">
+        {signIn && (
+          <a href={`/sign-in?next=${encodeURIComponent(window.location.pathname)}`} className="inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg">
+            Sign in
+          </a>
+        )}
         {reload && (
           <button onClick={() => window.location.reload()} className="inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg">
             Reload
@@ -623,7 +652,7 @@ function Notice({ title, body, project, reload }: { title: string; body: string;
         )}
         <Link
           href={`/projects/${project.id}`}
-          className={reload ? "inline-flex rounded-full border border-line px-5 py-2.5 text-sm" : "inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg"}
+          className={reload || signIn ? "inline-flex rounded-full border border-line px-5 py-2.5 text-sm" : "inline-flex rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg"}
         >
           Back to {project.name}
         </Link>
