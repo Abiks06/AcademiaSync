@@ -3,10 +3,10 @@
 import "@liveblocks/react-ui/styles.css";
 import "@liveblocks/react-tiptap/styles.css";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { ChevronLeft, History, Lock, WifiOff } from "lucide-react";
+import { BookMarked, ChevronLeft, History, Lock, Quote, WifiOff } from "lucide-react";
 import { ClientSideSuspense, LiveblocksProvider, RoomProvider, useErrorListener, useThreads } from "@liveblocks/react/suspense";
 import { AnchoredThreads, FloatingComposer, FloatingThreads, FloatingToolbar, Toolbar, useLiveblocksExtension } from "@liveblocks/react-tiptap";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
@@ -20,6 +20,14 @@ import {
   saveVersion,
   updateDocumentDetails,
 } from "@/app/(app)/projects/[projectId]/documents/[documentId]/actions";
+import { inTextLabel } from "@/lib/library/format";
+import { collectCitations } from "@/lib/library/citations";
+import type { Source } from "@/lib/library/types";
+import { SourceDialog } from "@/components/library/source-dialog";
+import { Citation } from "./citation";
+import { CitationPicker } from "./citation-picker";
+import { ReferencesPanel } from "./references-panel";
+import { SourcesContext } from "./sources-context";
 import { PresenceStack } from "./presence";
 import { SyncStatus } from "./sync-status";
 import { VersionsPanel } from "./versions-panel";
@@ -27,6 +35,8 @@ import { VersionsPanel } from "./versions-panel";
 export type WorkspaceProps = {
   document: { id: string; title: string; status: DocumentStatus };
   project: { id: string; name: string; accent: string };
+  /** The project's library, for citing. */
+  sources: Source[];
   canEdit: boolean;
   liveReady: boolean;
 };
@@ -94,11 +104,16 @@ function Shell(props: WorkspaceProps) {
   );
 }
 
-function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { onOpened: () => void }) {
+function Workspace({ document, project, canEdit, sources: initialSources, onOpened }: WorkspaceProps & { onOpened: () => void }) {
   const accent = accentColor(project.accent);
   const liveblocks = useLiveblocksExtension({ field: "manuscript" });
   const [words, setWords] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [referencesOpen, setReferencesOpen] = useState(false);
+  const [picker, setPicker] = useState<"closed" | "pick" | "add">("closed");
+  const [sources, setSources] = useState(initialSources);
+  const [cited, setCited] = useState<{ ids: string[]; count: number }>({ ids: [], count: 0 });
+  const sourcesValue = useMemo(() => ({ byId: new Map(sources.map((s) => [s.id, s])) }), [sources]);
   useEffect(onOpened, [onOpened]);
 
   const editor = useEditor({
@@ -106,6 +121,7 @@ function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { 
     editable: canEdit,
     extensions: [
       liveblocks,
+      Citation,
       // The collaboration layer keeps its own history, so the built-in one must be off.
       StarterKit.configure({ undoRedo: false }),
       Placeholder.configure({ placeholder: "Start writing. Everyone in this project sees changes as you type." }),
@@ -120,9 +136,12 @@ function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { 
   useEffect(() => {
     if (!editor) return;
     const countWords = () => setWords(editor.getText().split(/\s+/).filter(Boolean).length);
+    const countCitations = () => setCited(collectCitations(editor.state.doc));
     countWords();
+    countCitations();
     const onUpdate = () => {
       countWords();
+      countCitations();
       if (!canEdit) return;
       clearTimeout(idle.current);
       idle.current = setTimeout(() => {
@@ -136,7 +155,30 @@ function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { 
     };
   }, [editor, canEdit, document.id]);
 
+  const cite = useCallback(
+    (source: Source) => {
+      setSources((prev) => (prev.some((s) => s.id === source.id) ? prev : [source, ...prev]));
+      setPicker("closed");
+      editor?.chain().focus().insertCitation({ sourceId: source.id, label: inTextLabel(source) }).run();
+    },
+    [editor],
+  );
+
+  // Mod-Shift-K opens the citation picker from anywhere in the editor.
+  useEffect(() => {
+    if (!canEdit) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPicker("pick");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [canEdit]);
+
   return (
+    <SourcesContext.Provider value={sourcesValue}>
     <div className="mx-auto max-w-[78rem]">
       <motion.header
         initial={{ opacity: 0, y: -12 }}
@@ -158,6 +200,22 @@ function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { 
           <div className="ml-auto flex flex-wrap items-center gap-3">
             <PresenceStack />
             <SyncStatus />
+            {canEdit && (
+              <button
+                onClick={() => setPicker("pick")}
+                title="Cite a source (Ctrl/Cmd+Shift+K)"
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+              >
+                <Quote className="h-4 w-4 text-iris" /> Cite
+              </button>
+            )}
+            <button
+              onClick={() => setReferencesOpen(true)}
+              className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+            >
+              <BookMarked className="h-4 w-4 text-iris" /> References
+              {cited.ids.length > 0 && <span className="font-mono text-xs text-faint">{cited.ids.length}</span>}
+            </button>
             <button
               onClick={() => setVersionsOpen(true)}
               className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
@@ -207,7 +265,23 @@ function Workspace({ document, project, canEdit, onOpened }: WorkspaceProps & { 
         editor={editor}
         canEdit={canEdit}
       />
+
+      {picker === "pick" && (
+        <CitationPicker sources={sources} onPick={cite} onAddNew={() => setPicker("add")} onClose={() => setPicker("closed")} />
+      )}
+      {picker === "add" && (
+        <SourceDialog projectId={project.id} onClose={() => setPicker("closed")} onSaved={cite} />
+      )}
+      <ReferencesPanel
+        open={referencesOpen}
+        onClose={() => setReferencesOpen(false)}
+        citedIds={cited.ids}
+        citationCount={cited.count}
+        byId={sourcesValue.byId}
+        documentTitle={document.title}
+      />
     </div>
+    </SourcesContext.Provider>
   );
 }
 

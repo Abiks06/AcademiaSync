@@ -185,6 +185,17 @@ h3 {
   color: var(--ink);
   caret-color: var(--iris);
 }
+.manuscript-prose .citation {
+  color: var(--iris);
+  border-radius: 0.35em;
+  padding: 0 0.15em;
+  cursor: default;
+  transition: background-color 0.15s;
+}
+.manuscript-prose .citation:hover,
+.manuscript-prose .citation.is-selected { background: var(--iris-soft); }
+.manuscript-prose .citation.is-selected { outline: 2px solid var(--iris); outline-offset: 1px; }
+.manuscript-prose .citation.is-missing { color: var(--danger); text-decoration: underline wavy; }
 .manuscript-prose > * + * { margin-top: 1em; }
 .manuscript-prose h1 { font-size: 2rem; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; margin-top: 1.6em; }
 .manuscript-prose h2 { font-size: 1.5rem; line-height: 1.2; font-weight: 600; margin-top: 1.5em; }

@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { FileText, Loader2, Plus } from "lucide-react";
+import { BookMarked, FileText, Loader2, Plus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
@@ -65,6 +65,12 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
             <span className="ml-3 text-sm text-muted">
               {members.length} {members.length === 1 ? "member" : "members"}
             </span>
+            <Link
+              href={`/projects/${project.id}/library`}
+              className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+            >
+              <BookMarked className="h-4 w-4 text-iris" /> Library
+            </Link>
           </div>
         </div>
       </motion.header>
