@@ -27,14 +27,17 @@ truth per piece of data, and nothing that fakes success.**
 ## Set up
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Run the migration in `supabase/migrations/` (SQL editor, or `npx supabase db push` once linked).
+2. Run the migrations in `supabase/migrations/`, in filename order (SQL editor, or `npx supabase db push` once linked).
 3. In **Authentication → URL configuration**, set the site URL and add
    `http://localhost:3000/auth/callback` (and your production URL) to the redirect URLs.
 4. Optional: enable the **Google** and **Azure (Microsoft)** providers under
    **Authentication → Providers**. Email magic links work without this.
-5. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key. In production,
+5. Before inviting real users, add your own email service under **Authentication → Emails → SMTP
+   settings** (Resend, Postmark, SendGrid…). Supabase's built-in sender only delivers to members of
+   your Supabase organization and is heavily rate-limited.
+6. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key. In production,
    also set `NEXT_PUBLIC_SITE_URL` to the public address so sign-in links point there.
-6. Install and run:
+7. Install and run:
 
 ```bash
 npm install
