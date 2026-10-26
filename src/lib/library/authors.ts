@@ -25,3 +25,14 @@ export function parseAuthors(text: string): Author[] {
 export function authorsToText(authors: Author[]) {
   return authors.map((a) => (a.given ? `${a.family}, ${a.given}` : a.family)).join("\n");
 }
+
+/** Authors read from the database or an API, dropping anything that isn't {family, given?}. */
+export function sanitizeAuthors(value: unknown): Author[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((a) => {
+    if (typeof a !== "object" || a === null) return [];
+    const { family, given } = a as Record<string, unknown>;
+    if (typeof family !== "string" || !family) return [];
+    return [{ family, given: typeof given === "string" ? given : "" }];
+  });
+}

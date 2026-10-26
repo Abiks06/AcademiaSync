@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { actionUser } from "@/lib/supabase/action-user";
 import { lookupDoi, normalizeDoi } from "@/lib/library/crossref";
+import { sanitizeAuthors } from "@/lib/library/authors";
 import { SOURCE_KINDS, type Source, type SourceFields } from "@/lib/library/types";
 
 export type SourceResult = { ok: true; source: Source } | { ok: false; error: string };
@@ -57,7 +58,23 @@ function firstIssue(error: z.ZodError) {
 }
 
 function toSource(row: Record<string, unknown>): Source {
-  return row as unknown as Source;
+  return { ...(row as unknown as Source), authors: sanitizeAuthors(row.authors) };
+}
+
+export type SourceListResult = { ok: true; sources: Source[] } | { ok: false; error: string };
+
+/** The project's current library, for open editors to catch up with what co-authors have added or removed. */
+export async function listSources(projectId: string): Promise<SourceListResult> {
+  if (!uuid.safeParse(projectId).success) return { ok: false, error: "Unknown project." };
+  const auth = await actionUser();
+  if (!auth.ok) return auth;
+  const { data, error } = await auth.supabase
+    .from("sources")
+    .select(COLUMNS)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, sources: data.map(toSource) };
 }
 
 /** Fills the "add source" form from a DOI. Nothing is saved until the person confirms. */

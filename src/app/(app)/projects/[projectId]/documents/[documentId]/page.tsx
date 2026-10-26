@@ -6,6 +6,7 @@ import { isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { canEditRole } from "@/lib/liveblocks/rooms";
 import { DocumentWorkspace } from "@/components/editor/document-workspace";
 import type { Source } from "@/lib/library/types";
+import { sanitizeAuthors } from "@/lib/library/authors";
 
 export const metadata: Metadata = { title: "Manuscript" };
 
@@ -37,7 +38,7 @@ export default async function DocumentPage({ params }: PageProps<"/projects/[pro
   // A document reached through the wrong project in the URL is also not found.
   if (!document || !project || !membership || document.project_id !== project.id) notFound();
 
-  const sources: Source[] = sourcesResult.data ?? [];
+  const sources: Source[] = (sourcesResult.data ?? []).map((r) => ({ ...r, authors: sanitizeAuthors(r.authors) }));
 
   return (
     <DocumentWorkspace

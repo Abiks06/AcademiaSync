@@ -5,6 +5,7 @@ import { getUser } from "@/lib/supabase/server";
 import { canEditRole } from "@/lib/liveblocks/rooms";
 import { LibraryView } from "@/components/library/library-view";
 import type { Source } from "@/lib/library/types";
+import { sanitizeAuthors } from "@/lib/library/authors";
 
 export const metadata: Metadata = { title: "Library" };
 
@@ -35,7 +36,7 @@ export default async function LibraryPage({ params }: PageProps<"/projects/[proj
   const rows = sourcesResult.data ?? [];
   const createdBy = Object.fromEntries(rows.map((r) => [r.id, r.created_by]));
   const sources: Source[] = rows.map((r) => ({
-    id: r.id, project_id: r.project_id, kind: r.kind, title: r.title, authors: r.authors, year: r.year,
+    id: r.id, project_id: r.project_id, kind: r.kind, title: r.title, authors: sanitizeAuthors(r.authors), year: r.year,
     container: r.container, volume: r.volume, issue: r.issue, pages: r.pages, publisher: r.publisher,
     doi: r.doi, url: r.url, abstract: r.abstract, notes: r.notes, created_at: r.created_at,
   }));

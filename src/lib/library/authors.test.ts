@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authorsToText, parseAuthors } from "./authors";
+import { authorsToText, parseAuthors, sanitizeAuthors } from "./authors";
 
 describe("parseAuthors", () => {
   it("reads 'Family, Given' lines", () => {
@@ -20,5 +20,15 @@ describe("parseAuthors", () => {
   });
   it("drops a line with no family name", () => {
     expect(parseAuthors(", Amy")).toEqual([]);
+  });
+});
+
+describe("sanitizeAuthors", () => {
+  it("keeps well-formed authors and drops everything else", () => {
+    expect(sanitizeAuthors([null, 3, "x", {}, { family: "" }, { family: "Lusher" }, { family: "Hu", given: 4 }])).toEqual([
+      { family: "Lusher", given: "" },
+      { family: "Hu", given: "" },
+    ]);
+    expect(sanitizeAuthors({ family: "x" })).toEqual([]);
   });
 });

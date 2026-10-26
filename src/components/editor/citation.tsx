@@ -67,10 +67,10 @@ export const Citation = Node.create({
 });
 
 function CitationView({ node, selected }: NodeViewProps) {
-  const { byId } = useSources();
+  const { byId, checking } = useSources();
   const source = byId.get(String(node.attrs.sourceId));
-  // An empty library map means the library hasn't loaded; only call a citation missing once it has.
-  const missing = !source && byId.size > 0;
+  // Only call a citation missing once the editor has checked the library for it.
+  const missing = !source && !checking;
   const label = source ? inTextLabel(source) : String(node.attrs.label || "source");
 
   return (

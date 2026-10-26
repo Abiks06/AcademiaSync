@@ -23,6 +23,7 @@ import {
 import { inTextLabel } from "@/lib/library/format";
 import { collectCitations } from "@/lib/library/citations";
 import type { Source } from "@/lib/library/types";
+import { listSources } from "@/app/(app)/projects/[projectId]/library/actions";
 import { SourceDialog } from "@/components/library/source-dialog";
 import { Citation } from "./citation";
 import { CitationPicker } from "./citation-picker";
@@ -113,7 +114,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const [picker, setPicker] = useState<"closed" | "pick" | "add">("closed");
   const [sources, setSources] = useState(initialSources);
   const [cited, setCited] = useState<{ ids: string[]; count: number }>({ ids: [], count: 0 });
-  const sourcesValue = useMemo(() => ({ byId: new Map(sources.map((s) => [s.id, s])) }), [sources]);
+  const [checking, setChecking] = useState(false);
+  const sourcesValue = useMemo(() => ({ byId: new Map(sources.map((s) => [s.id, s])), checking }), [sources, checking]);
   useEffect(onOpened, [onOpened]);
 
   const editor = useEditor({
@@ -163,6 +165,37 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     },
     [editor],
   );
+
+  // Co-authors add and remove sources while this tab is open. Catch up when the text cites
+  // a source we haven't got, and whenever the tab comes back into view.
+  const asked = useRef(new Set<string>());
+  const refreshSources = useCallback(async () => {
+    const result = await listSources(project.id);
+    if (result.ok) setSources(result.sources);
+  }, [project.id]);
+  const unknownKey = cited.ids.filter((id) => !sources.some((s) => s.id === id)).sort().join(",");
+  useEffect(() => {
+    if (!unknownKey || asked.current.has(unknownKey)) return;
+    asked.current.add(unknownKey);
+    let live = true;
+    setChecking(true);
+    void refreshSources().finally(() => live && setChecking(false));
+    return () => {
+      live = false;
+      setChecking(false);
+    };
+  }, [unknownKey, refreshSources]);
+  useEffect(() => {
+    const onVisible = () => {
+      if (window.document.visibilityState === "visible") void refreshSources();
+    };
+    window.document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      window.document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [refreshSources]);
 
   // Mod-Shift-K opens the citation picker from anywhere in the editor.
   useEffect(() => {
