@@ -4,6 +4,7 @@ import { AuthUnavailableError, isSignedOutError } from "@/lib/supabase/auth-erro
 import { getLiveblocks, isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { canEditRole, documentIdFromRoom, userColor } from "@/lib/liveblocks/rooms";
 import { MIN_SCHEMA_VERSION, requestSchema } from "@/lib/editor/schema-version";
+import { restoreLostRoom } from "@/lib/documents/live-document";
 
 /**
  * Hands out a short-lived Liveblocks token for one document room. The database
@@ -47,6 +48,10 @@ export async function POST(request: NextRequest) {
   // A failed lookup is not the same as "not a member": let the client retry instead of locking them out.
   if (membershipError) return NextResponse.json({ error: "Couldn't check your access. Try again." }, { status: 503 });
   if (!membership) return NextResponse.json({ error: "You don't have access to this document." }, { status: 403 });
+
+  // If the room lost its text (a new Liveblocks project, say), put the saved copy back
+  // before this editor connects to an empty document.
+  await restoreLostRoom(documentId);
 
   const session = getLiveblocks().prepareSession(user.id, {
     userInfo: {

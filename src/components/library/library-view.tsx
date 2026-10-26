@@ -8,7 +8,7 @@ import { accentColor } from "@/components/app/accent";
 import { TimeAgo } from "@/components/app/time-ago";
 import { bibliographyOrder, formatReference, searchText, toBibtex } from "@/lib/library/format";
 import { KIND_LABEL, type Source } from "@/lib/library/types";
-import { listSources, setSourceDeleted } from "@/app/(app)/projects/[projectId]/library/actions";
+import { listSources, setSourceDeleted, sourceUsage } from "@/app/(app)/projects/[projectId]/library/actions";
 import { useLibrarySync } from "@/lib/library/use-library-sync";
 import { useRequestKey } from "@/lib/use-request-key";
 import { downloadText, fileSlug } from "@/lib/download";
@@ -32,6 +32,23 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
   const [dialog, setDialog] = useState<{ editing?: Source } | null>(null);
   const [importing, setImporting] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  // Where the source being deleted is cited, so nobody deletes a source 40 citations rely on by accident.
+  const [usage, setUsage] = useState<{ id: string; text: string } | null>(null);
+  const confirmDelete = async (id: string) => {
+    setConfirming(id);
+    setUsage(null);
+    try {
+      const result = await sourceUsage(id);
+      if (!result.ok) return;
+      const text =
+        result.citations === 0
+          ? "Not cited in any manuscript."
+          : `Cited ${result.citations} ${result.citations === 1 ? "time" : "times"} in ${result.documents} ${result.documents === 1 ? "manuscript" : "manuscripts"}; those citations will show a warning.`;
+      setUsage({ id, text });
+    } catch {
+      // The confirmation still works without the count.
+    }
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [undo, setUndo] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -218,7 +235,9 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                   {canDelete &&
                     (confirming === s.id ? (
                       <span className="ml-auto flex items-center gap-2 text-xs">
-                        <span className="text-muted">Delete? Citations of it will show a warning. You can undo this.</span>
+                        <span className="text-muted">
+                          Delete? {usage?.id === s.id ? usage.text : "Citations of it will show a warning."} You can undo this.
+                        </span>
                         <button
                           onClick={() => void setDeleted(s, true)}
                           disabled={busy !== null}
@@ -229,7 +248,7 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                         <button onClick={() => setConfirming(null)} className="rounded-lg px-3 py-1.5 text-muted hover:bg-iris-soft">Keep</button>
                       </span>
                     ) : (
-                      <button onClick={() => setConfirming(s.id)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-muted transition-colors hover:bg-danger/10 hover:text-danger">
+                      <button onClick={() => void confirmDelete(s.id)} className="ml-auto inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-muted transition-colors hover:bg-danger/10 hover:text-danger">
                         <Trash2 className="h-3.5 w-3.5" /> Delete
                       </button>
                     ))}

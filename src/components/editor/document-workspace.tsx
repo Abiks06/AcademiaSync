@@ -27,7 +27,7 @@ import type { DocumentStatus } from "@/lib/supabase/types";
 import { accentColor } from "@/components/app/accent";
 import {
   resolveUsers,
-  saveVersion,
+  syncDocument,
   updateDocumentDetails,
 } from "@/app/(app)/projects/[projectId]/documents/[documentId]/actions";
 import { CITATION_NODE, citationItems, citationMode, collectCitations, type CitationItem, type CitationMode } from "@/lib/library/citations";
@@ -56,7 +56,7 @@ export type WorkspaceProps = {
 };
 
 const STATUS_LABEL: Record<DocumentStatus, string> = { draft: "Draft", in_review: "In review", final: "Final" };
-const AUTOSAVE_IDLE_MS = 45_000;
+const SYNC_IDLE_MS = 20_000;
 
 export function DocumentWorkspace(props: WorkspaceProps) {
   const [signedOut, setSignedOut] = useState(false);
@@ -238,6 +238,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   // is open nobody adds or edits citations. It clears as soon as that tab reloads or leaves.
   const olderTabOpen = useOthers((others) => others.some((o) => (o.presence.schema ?? 0) < SCHEMA_VERSION));
   const canCite = canEdit && !olderTabOpen;
+  const othersHere = useOthers((others) => new Set(others.map((o) => o.id)).size);
 
   const byId = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const live = useMemo(() => sources.filter((s) => !s.deleted_at), [sources]);
@@ -289,7 +290,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     openPicker.current = startCiting;
   }, [startCiting]);
 
-  // Count words and take an idle snapshot, so history exists even if nobody presses Save.
+  // Count words, and after a pause ask the server to copy the live text into Supabase (and
+  // take an automatic version when one is due), in case the webhook is off or behind.
   const idle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (!editor) return;
@@ -308,12 +310,12 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       clearTimeout(idle.current);
       idle.current = setTimeout(async () => {
         try {
-          const result = await saveVersion({ documentId: document.id, content: editor.getJSON(), plainText: editor.getText(), auto: true });
+          const result = await syncDocument(document.id);
           setSaveError(result.ok ? null : result.error);
         } catch {
           // Offline: the live document is safe in Liveblocks, and the next idle pause tries again.
         }
-      }, AUTOSAVE_IDLE_MS);
+      }, SYNC_IDLE_MS);
     };
     editor.on("update", onUpdate);
     return () => {
@@ -469,13 +471,11 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         <Comments editor={editor} />
       </motion.div>
 
-      <VersionsPanel
-        open={versionsOpen}
-        onClose={() => setVersionsOpen(false)}
-        documentId={document.id}
-        editor={editor}
-        canEdit={canEdit}
-      />
+      <AnimatePresence>
+        {versionsOpen && (
+          <VersionsPanel onClose={() => setVersionsOpen(false)} documentId={document.id} canEdit={canEdit} othersHere={othersHere} />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {picker.mode === "pick" && (

@@ -290,3 +290,15 @@ export async function importSources(input: { projectId: string; requestId: strin
   revalidatePath(`/projects/${input.projectId}/library`);
   return { ok: true, added, skipped: skipped + rows.length - added.length };
 }
+
+export type UsageResult = { ok: true; citations: number; documents: number } | { ok: false; error: string };
+
+/** How often a source is cited across the project's manuscripts, as the server last saw them. */
+export async function sourceUsage(sourceId: string): Promise<UsageResult> {
+  if (!uuid.safeParse(sourceId).success) return { ok: false, error: "Unknown source." };
+  const auth = await actionUser();
+  if (!auth.ok) return auth;
+  const { data, error } = await auth.supabase.from("document_citations").select("citations").eq("source_id", sourceId);
+  if (error) return { ok: false, error: dbErrorMessage(error, "check where this source is cited") };
+  return { ok: true, citations: data.reduce((sum, row) => sum + row.citations, 0), documents: data.length };
+}

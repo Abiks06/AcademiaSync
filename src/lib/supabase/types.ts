@@ -85,6 +85,16 @@ export type SourceRow = {
   deleted_at: string | null;
 };
 
+export type DocumentState = {
+  document_id: string;
+  /** bytea, sent and received as a "\\x…" hex string. */
+  ydoc: string;
+  plain_text: string;
+  updated_at: string;
+};
+
+export type DocumentCitation = { document_id: string; source_id: string; citations: number };
+
 export type ProjectInvite = {
   id: string;
   project_id: string;
@@ -117,6 +127,8 @@ export type Database = {
         Partial<Omit<SourceRow, "id" | "project_id" | "created_by" | "client_request_id" | "created_at" | "updated_at" | "deleted_at">>
       >;
       project_invites: Table<ProjectInvite, Pick<ProjectInvite, "project_id" | "email"> & Partial<ProjectInvite>>;
+      document_state: Table<DocumentState, DocumentState>;
+      document_citations: Table<DocumentCitation, DocumentCitation>;
     };
     Views: { [_ in never]: never };
     Functions: {
@@ -125,6 +137,19 @@ export type Database = {
       project_role_of: { Args: { p_project: string }; Returns: ProjectRole };
       can_edit_project: { Args: { p_project: string }; Returns: boolean };
       set_source_deleted: { Args: { p_source: string; p_deleted: boolean }; Returns: string | null };
+      save_document_state: {
+        Args: {
+          p_document: string;
+          p_ydoc: string;
+          p_plain_text: string;
+          p_citations: { sourceId: string; count: number }[];
+          p_version_content?: unknown;
+          p_label?: string | null;
+          p_created_by?: string | null;
+          p_min_gap?: string | null;
+        };
+        Returns: string | null;
+      };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };
     CompositeTypes: { [_ in never]: never };

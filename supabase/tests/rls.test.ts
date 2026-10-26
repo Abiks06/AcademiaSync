@@ -205,3 +205,54 @@ describe("profiles", () => {
     );
   });
 });
+
+describe("server-side document state", () => {
+  const save = (doc: string, citations: unknown[], version?: { content?: unknown; label?: string; by?: string; gap?: string }) =>
+    db.asService<{ id: string | null }>(
+      "select public.save_document_state($1, '\\x0102'::bytea, $2, $3, $4, $5, $6, $7::interval) as id",
+      [doc, version?.label ?? "text", JSON.stringify(citations), version?.content === undefined ? null : JSON.stringify(version.content), version?.label ?? null, version?.by ?? null, version?.gap ?? null],
+    );
+
+  it("keeps the live document away from browsers", async () => {
+    await save(documentId, []);
+    const { rows } = await db.admin("select 1 from public.document_state where document_id = $1", [documentId]);
+    expect(rows).toHaveLength(1);
+    await expectCode(db.as(ada, "select ydoc from public.document_state"), PG.insufficientPrivilege);
+    await expectCode(
+      db.as(ada, "select public.save_document_state($1, '\\x00'::bytea, '', '[]'::jsonb)", [documentId]),
+      PG.insufficientPrivilege,
+    );
+  });
+
+  it("indexes citations of the project's own sources only", async () => {
+    const own = await db.as<{ id: string }>(ada, "insert into public.sources (project_id, title, created_by) values ($1, 'Own', $2) returning id", [projectId, ada]);
+    const foreign = await db.as<{ id: string }>(eve, "insert into public.sources (project_id, title, created_by) values ($1, 'Foreign', $2) returning id", [otherProject, eve]);
+    await save(documentId, [
+      { sourceId: own.rows[0].id, count: 3 },
+      { sourceId: foreign.rows[0].id, count: 1 },
+    ]);
+    const { rows } = await db.as<{ source_id: string; citations: number }>(dee, "select source_id, citations from public.document_citations where document_id = $1", [documentId]);
+    expect(rows).toEqual([{ source_id: own.rows[0].id, citations: 3 }]);
+    const outsider = await db.as(eve, "select 1 from public.document_citations where document_id = $1", [documentId]);
+    expect(outsider.rows).toHaveLength(0);
+  });
+
+  it("adds named versions, and automatic ones only when due", async () => {
+    const doc = await db.document(projectId, ada);
+    const named = await save(doc, [], { content: { type: "doc" }, label: "Draft 1", by: ben });
+    expect(named.rows[0].id).toBeTruthy();
+    // Within the gap: skipped.
+    const early = await save(doc, [], { content: { type: "doc" }, label: "changed", gap: "10 minutes" });
+    expect(early.rows[0].id).toBeNull();
+    // No gap needed for a manual version, and the author is recorded.
+    const { rows } = await db.as<{ label: string; created_by: string }>(dee, "select label, created_by from public.document_versions where document_id = $1", [doc]);
+    expect(rows).toEqual([{ label: "Draft 1", created_by: ben }]);
+  });
+
+  it("refuses versions written by browsers", async () => {
+    await expectCode(
+      db.as(ada, "insert into public.document_versions (document_id, content, plain_text) values ($1, '{}', 'forged')", [documentId]),
+      PG.insufficientPrivilege,
+    );
+  });
+});

@@ -4,11 +4,11 @@ import * as Y from "yjs";
 import { Editor, Extension, generateHTML, generateJSON, type JSONContent } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
 import { ySyncPlugin } from "y-prosemirror";
-import { Citation } from "@/components/editor/citation";
+import { CitationNode } from "./citation-node";
 import { canOpen, claimSchema, documentSchema, SCHEMA_VERSION } from "./schema-version";
 
-// The React node view needs a React renderer; the schema and commands are what matter here.
-const PlainCitation = Citation.extend({ addNodeView: () => null });
+// The schema and commands without the React view, as the server uses them.
+const PlainCitation = CitationNode;
 
 const editors: Editor[] = [];
 afterEach(() => editors.splice(0).forEach((e) => e.destroy()));
@@ -31,6 +31,11 @@ function connect(a: Y.Doc, b: Y.Doc) {
   Y.applyUpdate(a, Y.encodeStateAsUpdate(b));
   a.on("update", (u: Uint8Array) => Y.applyUpdate(b, u));
   b.on("update", (u: Uint8Array) => Y.applyUpdate(a, u));
+}
+
+/** The editor's JSON without null attributes, which the Yjs document doesn't store. */
+function stored(json: JSONContent): JSONContent {
+  return JSON.parse(JSON.stringify(json, (key, value) => (value === null ? undefined : value)));
 }
 
 function citations(json: JSONContent): JSONContent[] {
@@ -120,5 +125,52 @@ describe("citation HTML", () => {
   it("drops a pasted citation with nothing valid in it", () => {
     const json = generateJSON('<p><span data-citation data-items="[{&quot;sourceId&quot;:&quot;nope&quot;}]">x</span></p>', extensions);
     expect(citations(json)).toHaveLength(0);
+  });
+});
+
+describe("server-side reading and restoring", () => {
+  it("reads text, citations and plain text from the Yjs document alone", async () => {
+    const { manuscriptJSON, plainText, citationCounts } = await import("./ydoc");
+    const doc = new Y.Doc();
+    const a = editorOn(doc, true);
+    a.chain().insertContent("<h2>Intro</h2><p>Plastic <strong>everywhere</strong> </p>").insertCitation(cite).insertCitation(cite).run();
+
+    const json = manuscriptJSON(doc);
+    expect(json).toEqual(stored(a.getJSON()));
+    expect(plainText(json)).toBe("Intro\n\nPlastic everywhere (Lusher, 2017, p. 4) (Lusher, 2017, p. 4) ");
+    expect([...citationCounts(json)]).toEqual([[cite.items[0].sourceId, 2]]);
+  });
+
+  it("restores content into a live document, and every editor follows", async () => {
+    const { replaceManuscript, manuscriptJSON, isBlank } = await import("./ydoc");
+    const server = new Y.Doc();
+    const browser = new Y.Doc();
+    const b = editorOn(browser, true);
+    connect(server, browser);
+    b.chain().insertContent("Text written after the version").run();
+
+    const version: JSONContent = {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 2 }, content: [{ type: "text", text: "Methods" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Bold", marks: [{ type: "bold" }] }, { type: "text", text: " and " }, { type: "citation", attrs: cite }] },
+      ],
+    };
+    replaceManuscript(server, version as never);
+
+    expect(stored(b.getJSON())).toEqual(manuscriptJSON(server));
+    expect(b.getText()).not.toContain("written after");
+    expect(citations(b.getJSON())).toHaveLength(1);
+    expect(b.getJSON().content?.[1].content?.[0].marks).toEqual([{ type: "bold" }]);
+    expect(isBlank(new Y.Doc())).toBe(true);
+    expect(isBlank(server)).toBe(false);
+  });
+
+  it("refuses to restore content the editor doesn't understand", async () => {
+    const { isRestorable } = await import("./ydoc");
+    expect(isRestorable({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "ok" }] }] })).toBe(true);
+    expect(isRestorable({ type: "doc", content: [{ type: "image" }] })).toBe(false);
+    expect(isRestorable({ type: "doc", content: "nope" })).toBe(false);
+    expect(isRestorable(null)).toBe(false);
   });
 });

@@ -26,6 +26,20 @@ export async function connect() {
     }
   }
 
+  /** Runs as the app server does with the secret key: the service_role, which bypasses row-level security. */
+  async function asService<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) {
+    await client.query("begin");
+    try {
+      await client.query("set local role service_role");
+      const result = await client.query<T>(sql, params);
+      await client.query("commit");
+      return result;
+    } catch (e) {
+      await client.query("rollback");
+      throw e;
+    }
+  }
+
   /** Runs as the database owner, bypassing row-level security, for setup and checks. */
   const admin = <T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []) =>
     client.query<T>(sql, params);
@@ -56,7 +70,7 @@ export async function connect() {
     return rows[0].id;
   }
 
-  return { client, as, admin, user, project, document, end: () => client.end() };
+  return { client, as, asService, admin, user, project, document, end: () => client.end() };
 }
 
 /** Postgres error codes the tests expect. */
