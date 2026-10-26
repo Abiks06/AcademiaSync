@@ -20,8 +20,8 @@ export function initials(name: string) {
     .join("");
 }
 
-export function timeAgo(iso: string) {
-  const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+export function timeAgo(iso: string, now: number) {
+  const s = Math.max(1, Math.round((now - new Date(iso).getTime()) / 1000));
   const units: [number, string][] = [
     [60, "second"],
     [60, "minute"],

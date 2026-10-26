@@ -1,3 +1,4 @@
+import { connection } from "next/server";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseEnv } from "@/lib/env";
@@ -29,6 +30,8 @@ export async function createClient() {
  * `user` is null when nobody is signed in; an Auth outage throws AuthUnavailableError instead.
  */
 export async function getUser() {
+  // Auth checks the session's expiry against the clock, so this must only run at request time.
+  await connection();
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getUser();
   if (error && !isSignedOutError(error)) throw new AuthUnavailableError(error);

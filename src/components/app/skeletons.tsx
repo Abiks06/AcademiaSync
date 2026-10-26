@@ -8,14 +8,21 @@ export function ShellSkeleton() {
         ))}
       </div>
       <div className="flex-1 px-4 py-8 sm:px-8 lg:px-12">
-        <div className="mx-auto max-w-6xl">
-          <div className="shimmer h-12 w-56 rounded-xl bg-line" />
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="shimmer h-52 rounded-2xl border border-line bg-line/40" />
-            ))}
-          </div>
-        </div>
+        <PageSkeleton />
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder for the page area while its data loads inside the app shell. */
+export function PageSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl" aria-busy="true" aria-label="Loading">
+      <div className="shimmer h-12 w-56 rounded-xl bg-line" />
+      <div className="mt-10 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="shimmer h-52 rounded-2xl border border-line bg-line/40" />
+        ))}
       </div>
     </div>
   );

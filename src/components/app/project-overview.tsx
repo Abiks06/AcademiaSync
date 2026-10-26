@@ -7,7 +7,8 @@ import { FileText, Loader2, Plus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
-import { accentColor, timeAgo } from "./accent";
+import { accentColor } from "./accent";
+import { TimeAgo } from "./time-ago";
 
 type Props = {
   project: { id: string; name: string; field: string | null; description: string | null; accent: string };
@@ -92,7 +93,7 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate font-medium">{d.title}</p>
-                  <p className="text-xs text-faint">Updated {timeAgo(d.updated_at)}</p>
+                  <p className="text-xs text-faint"><TimeAgo iso={d.updated_at} prefix="Updated " /></p>
                 </div>
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS[d.status].className}`}>
                   {STATUS[d.status].label}

@@ -7,7 +7,8 @@ import { AnimatePresence, motion } from "motion/react";
 import { FileText, Loader2, Plus, Users, X } from "lucide-react";
 import { createProject, type FormState } from "@/app/(app)/projects/actions";
 import { TiltCard } from "@/components/motion/primitives";
-import { ACCENTS, accentColor, timeAgo, type Accent } from "./accent";
+import { ACCENTS, accentColor, type Accent } from "./accent";
+import { TimeAgo } from "./time-ago";
 
 type ProjectCard = {
   id: string;
@@ -78,7 +79,7 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
                     <div className="mt-5 flex items-center gap-4 text-xs text-faint">
                       <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />{p.documents}</span>
                       <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" />{p.members}</span>
-                      <span className="ml-auto">Updated {timeAgo(p.updatedAt)}</span>
+                      <span className="ml-auto"><TimeAgo iso={p.updatedAt} prefix="Updated " /></span>
                     </div>
                   </div>
                 </TiltCard>
