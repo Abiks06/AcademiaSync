@@ -27,12 +27,13 @@ export function documentSchema(doc: Y.Doc) {
 }
 
 /** Records that this editor's schema has written to the document. Never lowers it. */
-export function claimSchema(doc: Y.Doc) {
-  if (documentSchema(doc) < SCHEMA_VERSION) doc.getMap(META).set(SCHEMA_KEY, SCHEMA_VERSION);
+export function claimSchema(doc: Y.Doc, version = SCHEMA_VERSION) {
+  if (documentSchema(doc) < version) doc.getMap(META).set(SCHEMA_KEY, version);
 }
 
-export function canOpen(doc: Y.Doc) {
-  return documentSchema(doc) <= SCHEMA_VERSION;
+/** Whether an editor with this schema may edit the document without losing anything. */
+export function canOpen(doc: Y.Doc, version = SCHEMA_VERSION) {
+  return documentSchema(doc) <= version;
 }
 
 /** Document settings shared live between everyone editing, like the citation style. */
