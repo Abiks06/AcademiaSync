@@ -90,6 +90,8 @@ export function SignInForm({ next, initialError }: { next: string; initialError?
                   role="alert"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto", x: [0, -6, 6, -3, 0] }}
+                  // Springs only take two keyframes, so the shake runs as a tween.
+                  transition={{ x: { type: "tween", duration: 0.4, ease: "easeOut" } }}
                   exit={{ opacity: 0, height: 0 }}
                   className="text-sm text-danger"
                 >

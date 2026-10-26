@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { getSupabaseEnv } from "@/lib/env";
 import { friendlyAuthError, safeNext } from "@/lib/auth-redirect";
 
 export type SignInState = { status: "idle" | "sent" | "error"; message?: string; email?: string };
@@ -41,14 +42,35 @@ export async function signInWithProvider(formData: FormData) {
   const provider = formData.get("provider");
   if (provider !== "google" && provider !== "azure") return;
 
+  // Supabase answers a disabled provider with a raw JSON error page, so check first.
+  const next = safeNext(formData.get("next"));
+  if (!(await isProviderEnabled(provider))) {
+    const name = provider === "google" ? "Google" : "Microsoft";
+    const params = new URLSearchParams({ error: `${name} sign-in isn't available yet. Use your email instead.` });
+    if (next !== "/projects") params.set("next", next);
+    redirect(`/sign-in?${params}`);
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: {
-      redirectTo: await callbackUrl(safeNext(formData.get("next"))),
+      redirectTo: await callbackUrl(next),
       scopes: provider === "azure" ? "email" : undefined,
     },
   });
   if (error) redirect(`/sign-in?error=${encodeURIComponent(friendlyAuthError(error))}`);
   redirect(data.url);
+}
+
+async function isProviderEnabled(provider: "google" | "azure") {
+  const { url, key } = getSupabaseEnv();
+  try {
+    const res = await fetch(`${url}/auth/v1/settings`, { headers: { apikey: key }, cache: "no-store" });
+    if (!res.ok) return true; // Let Supabase report the real problem.
+    const settings = (await res.json()) as { external?: Record<string, boolean> };
+    return settings.external?.[provider] !== false;
+  } catch {
+    return true;
+  }
 }
