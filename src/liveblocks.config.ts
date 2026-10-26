@@ -1,0 +1,19 @@
+// Types for Liveblocks hooks across the app.
+declare global {
+  interface Liveblocks {
+    Presence: {
+      /** The editor schema this tab runs, so newer tabs can hold back new kinds of content. */
+      schema?: number;
+    };
+    UserMeta: {
+      id: string;
+      info: { name: string; avatar?: string; color: string };
+    };
+    RoomEvent:
+      | { type: "schema-upgraded"; schema: number }
+      // Sent by the server when someone's access to the project changes.
+      | { type: "access-changed" };
+  }
+}
+
+export {};

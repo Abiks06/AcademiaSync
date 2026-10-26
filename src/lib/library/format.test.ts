@@ -93,9 +93,27 @@ describe("toBibtex", () => {
     const text = toBibtex([article]);
     expect(text).toContain("@article{hidalgoruz2012microplastics,");
     expect(text).toContain("author = {Hidalgo-Ruz, Valeria and Gutow, Lars and Thompson, Richard C.}");
-    expect(text).toContain("journal = {Environmental Science & Technology}");
+    expect(text).toContain("journal = {Environmental Science \\& Technology}");
+    expect(text).toContain("title = {{Microplastics in the marine environment: A review of the methods}}");
     expect(text).toContain("pages = {3060--3075}");
     expect(text).toContain("doi = {10.1021/es2031505}");
+  });
+  it("escapes LaTeX special characters so the file compiles", () => {
+    const text = toBibtex([{ ...article, title: "R&D at 50% for $5 #1 my_file ~x^2", container: "A & B" }]);
+    expect(text).toContain("title = {{R\\&D at 50\\% for \\$5 \\#1 my\\_file \\textasciitilde{}x\\textasciicircum{}2}}");
+    expect(text).toContain("journal = {A \\& B}");
+    expect(text).not.toMatch(/[^\\]&/);
+  });
+  it("keeps DOIs and links verbatim", () => {
+    const text = toBibtex([{ ...article, doi: "10.1000/a_b%c", url: "https://example.org/a_b" }]);
+    expect(text).toContain("doi = {10.1000/a_b%c}");
+    expect(text).toContain("url = {https://example.org/a_b}");
+  });
+  it("keeps cite keys unique past z", () => {
+    const keys = toBibtex(Array.from({ length: 30 }, () => article)).match(/^@\w+\{[^,]+/gm)!.map((k) => k.split("{")[1]);
+    expect(new Set(keys).size).toBe(30);
+    expect(keys[27]).toBe("hidalgoruz2012microplasticsaa");
+    expect(keys.join()).not.toContain("{");
   });
   it("keeps cite keys unique", () => {
     const text = toBibtex([article, article, article]);
@@ -105,7 +123,7 @@ describe("toBibtex", () => {
   });
   it("strips braces that would break an entry and braces organisation authors", () => {
     const text = toBibtex([{ ...article, title: "A {broken} \\title", authors: [{ family: "World Health Organization", given: "" }] }]);
-    expect(text).toContain("title = {A broken title}");
+    expect(text).toContain("title = {{A broken title}}");
     expect(text).toContain("author = {{World Health Organization}}");
   });
 });

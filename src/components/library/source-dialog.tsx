@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { motion } from "motion/react";
+import { useState } from "react";
 import { Loader2, Search, Sparkles, X } from "lucide-react";
+import { Dialog } from "@/components/ui/dialog";
 import { authorsToText, parseAuthors } from "@/lib/library/authors";
 import { KIND_LABEL, SOURCE_KINDS, type Source, type SourceFields, type SourceKind } from "@/lib/library/types";
 import { lookupSource, saveSource, updateSource } from "@/app/(app)/projects/[projectId]/library/actions";
@@ -43,43 +43,48 @@ type Props = {
   projectId: string;
   /** Present when editing; absent when adding. */
   editing?: Source;
-  /** The DOI lookup and the fields a pick prefilled, when the picker opens this dialog. */
-  initialDoi?: string;
+  /**
+   * Idempotency key for adding. The opener keeps it until a save succeeds, so closing the
+   * dialog after a dropped response and trying again can't add the source twice.
+   */
+  requestId?: string;
   onClose: () => void;
   onSaved: (source: Source) => void;
 };
 
-export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved }: Props) {
-  const [values, setValues] = useState<FormValues>(editing ? toForm(editing) : { ...EMPTY, doi: initialDoi ?? "" });
-  const [lookupDoi, setLookupDoi] = useState(initialDoi ?? "");
+const NETWORK_ERROR = "Couldn't reach AcademiaSync. Check your connection and try again; nothing was lost.";
+
+export function SourceDialog({ projectId, editing, requestId, onClose, onSaved }: Props) {
+  const [values, setValues] = useState<FormValues>(editing ? toForm(editing) : EMPTY);
+  // The version of the source this edit started from, so a co-author's save isn't overwritten.
+  const [base, setBase] = useState(editing);
+  const [lookupDoi, setLookupDoi] = useState("");
   const [lookupState, setLookupState] = useState<"idle" | "busy">("idle");
   const [filled, setFilled] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  // One key per opened dialog, so a double click or a retry can't create the source twice.
-  const [requestId] = useState(() => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : ""));
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues((v) => ({ ...v, [key]: value }));
 
   const fetchDetails = async () => {
-    if (!lookupDoi.trim()) return setMessage("Paste a DOI first.");
+    if (!lookupDoi.trim()) return setMessage("Paste a DOI, arXiv id or PubMed id first.");
     setLookupState("busy");
     setMessage(null);
-    const result = await lookupSource(lookupDoi);
-    setLookupState("idle");
-    if (!result.ok) return setMessage(result.error);
-    setValues(toForm(result.source));
-    setFilled(true);
+    try {
+      const result = await lookupSource(lookupDoi);
+      if (!result.ok) return setMessage(result.error);
+      setValues(toForm(result.source));
+      setFilled(true);
+    } catch {
+      setMessage(NETWORK_ERROR);
+    } finally {
+      setLookupState("idle");
+    }
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (saving) return;
     setSaving(true);
     setMessage(null);
     const fields = {
@@ -94,33 +99,29 @@ export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved 
       setSaving(false);
       return setMessage("Enter the year as a four-digit number, like 2024.");
     }
-    const result = editing
-      ? await updateSource({ sourceId: editing.id, fields })
-      : await saveSource({ projectId, requestId, fields });
-    setSaving(false);
-    if (!result.ok) return setMessage(result.error);
-    onSaved(result.source);
+    try {
+      const result = base
+        ? await updateSource({ sourceId: base.id, expectedUpdatedAt: base.updated_at, fields })
+        : await saveSource({ projectId, requestId, fields });
+      if (!result.ok) {
+        // A co-author saved first: show their version so nothing is silently lost either way.
+        if (result.conflict) {
+          setBase(result.conflict);
+          setValues(toForm(result.conflict));
+        }
+        return setMessage(result.error);
+      }
+      onSaved(result.source);
+    } catch {
+      setMessage(NETWORK_ERROR);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <motion.div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="source-dialog-title"
-        onClick={(e) => e.stopPropagation()}
-        initial={{ opacity: 0, y: 30, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.97 }}
-        transition={{ type: "spring", stiffness: 340, damping: 30 }}
-        className="relative my-8 w-full max-w-2xl rounded-2xl border border-line bg-bg-elev shadow-2xl"
-      >
+    <Dialog onClose={onClose} labelledBy="source-dialog-title" className="my-8 w-full max-w-2xl">
+      <div className="rounded-2xl border border-line bg-bg-elev shadow-2xl">
         <form onSubmit={submit} className="grid gap-5 p-6">
           <div className="flex items-start">
             <h2 id="source-dialog-title" className="font-serif text-2xl">{editing ? "Edit source" : "Add a source"}</h2>
@@ -132,7 +133,7 @@ export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved 
           {!editing && (
             <div className="rounded-xl border border-iris/30 bg-iris-soft p-4">
               <label htmlFor="lookup-doi" className="flex items-center gap-2 text-sm font-medium">
-                <Sparkles className="h-4 w-4 text-iris" /> Have a DOI? Paste it and we fill in the rest
+                <Sparkles className="h-4 w-4 text-iris" aria-hidden /> Have a DOI, arXiv id or PubMed id? Paste it and we fill in the rest
               </label>
               <div className="mt-2 flex gap-2">
                 <input
@@ -145,7 +146,8 @@ export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved 
                       void fetchDetails();
                     }
                   }}
-                  placeholder="10.1021/es2031505 or https://doi.org/…"
+                  data-autofocus
+                  placeholder="10.1021/es2031505, 2101.01234 or PMID 22356627"
                   className={inputClass}
                 />
                 <button
@@ -158,7 +160,7 @@ export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved 
                   Fetch
                 </button>
               </div>
-              {filled && <p role="status" className="mt-2 text-xs text-success">Filled in from Crossref. Check it over, then save.</p>}
+              {filled && <p role="status" className="mt-2 text-xs text-success">Filled in. Check it over, then save.</p>}
             </div>
           )}
 
@@ -222,14 +224,14 @@ export function SourceDialog({ projectId, editing, initialDoi, onClose, onSaved 
 
           <div className="flex justify-end gap-2">
             <button type="button" onClick={onClose} className="h-10 rounded-xl px-4 text-sm text-muted hover:bg-iris-soft">Cancel</button>
-            <button disabled={saving} className="flex h-10 items-center gap-2 rounded-xl bg-ink px-5 text-sm font-semibold text-bg disabled:opacity-60">
+            <button disabled={saving} aria-busy={saving} className="flex h-10 items-center gap-2 rounded-xl bg-ink px-5 text-sm font-semibold text-bg disabled:opacity-60">
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
               {editing ? "Save changes" : "Add to library"}
             </button>
           </div>
         </form>
-      </motion.div>
-    </motion.div>
+      </div>
+    </Dialog>
   );
 }
 

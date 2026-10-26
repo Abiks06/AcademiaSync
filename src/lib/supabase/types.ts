@@ -82,6 +82,7 @@ export type SourceRow = {
   client_request_id: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
 };
 
 export type ProjectInvite = {
@@ -110,7 +111,11 @@ export type Database = {
         DocumentVersion,
         Pick<DocumentVersion, "document_id" | "content"> & Partial<DocumentVersion>
       >;
-      sources: Table<SourceRow, Pick<SourceRow, "project_id" | "title"> & Partial<Omit<SourceRow, "id" | "created_at" | "updated_at">>>;
+      sources: Table<
+        SourceRow,
+        Pick<SourceRow, "project_id" | "title"> & Partial<Omit<SourceRow, "id" | "created_at" | "updated_at" | "deleted_at">>,
+        Partial<Omit<SourceRow, "id" | "project_id" | "created_by" | "client_request_id" | "created_at" | "updated_at" | "deleted_at">>
+      >;
       project_invites: Table<ProjectInvite, Pick<ProjectInvite, "project_id" | "email"> & Partial<ProjectInvite>>;
     };
     Views: { [_ in never]: never };
@@ -119,6 +124,7 @@ export type Database = {
       is_project_member: { Args: { p_project: string }; Returns: boolean };
       project_role_of: { Args: { p_project: string }; Returns: ProjectRole };
       can_edit_project: { Args: { p_project: string }; Returns: boolean };
+      set_source_deleted: { Args: { p_source: string; p_deleted: boolean }; Returns: string | null };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };
     CompositeTypes: { [_ in never]: never };

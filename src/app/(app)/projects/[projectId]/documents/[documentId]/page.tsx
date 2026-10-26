@@ -24,7 +24,7 @@ export default async function DocumentPage({ params }: PageProps<"/projects/[pro
     supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
     supabase
       .from("sources")
-      .select("id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, abstract, notes, created_at")
+      .select("id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, notes, created_at, updated_at, deleted_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
   ]);
@@ -38,7 +38,8 @@ export default async function DocumentPage({ params }: PageProps<"/projects/[pro
   // A document reached through the wrong project in the URL is also not found.
   if (!document || !project || !membership || document.project_id !== project.id) notFound();
 
-  const sources: Source[] = (sourcesResult.data ?? []).map((r) => ({ ...r, authors: sanitizeAuthors(r.authors) }));
+  // Abstracts aren't needed to cite, and can be long, so they stay out of the page.
+  const sources: Source[] = (sourcesResult.data ?? []).map((r) => ({ ...r, abstract: null, authors: sanitizeAuthors(r.authors) }));
 
   return (
     <DocumentWorkspace

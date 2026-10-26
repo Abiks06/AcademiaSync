@@ -3,11 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { AuthUnavailableError, isSignedOutError } from "@/lib/supabase/auth-errors";
 import { getLiveblocks, isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { canEditRole, documentIdFromRoom, userColor } from "@/lib/liveblocks/rooms";
+import { MIN_SCHEMA_VERSION, requestSchema } from "@/lib/editor/schema-version";
 
 /**
  * Hands out a short-lived Liveblocks token for one document room. The database
  * decides who gets in: if row-level security hides the document from this user,
- * no token is issued. Read-only roles get a read-only token.
+ * no token is issued. Read-only roles get a read-only token. Editors older than the
+ * document schema are turned away, since they would delete content they don't understand.
  */
 export async function POST(request: NextRequest) {
   if (!isLiveblocksConfigured()) {
@@ -17,6 +19,9 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => null)) as { room?: unknown } | null;
   const documentId = documentIdFromRoom(body?.room);
   if (!documentId) return NextResponse.json({ error: "Unknown room." }, { status: 400 });
+  if (requestSchema(body) < MIN_SCHEMA_VERSION) {
+    return NextResponse.json({ error: "AcademiaSync has been updated. Reload this page to keep editing." }, { status: 409 });
+  }
 
   const supabase = await createClient();
   const { data, error: authError } = await supabase.auth.getUser();
@@ -35,10 +40,12 @@ export async function POST(request: NextRequest) {
   // Row-level security returns nothing for projects the user isn't in.
   if (!document) return NextResponse.json({ error: "You don't have access to this document." }, { status: 403 });
 
-  const [{ data: membership }, { data: profile }] = await Promise.all([
+  const [{ data: membership, error: membershipError }, { data: profile }] = await Promise.all([
     supabase.from("project_members").select("role").eq("project_id", document.project_id).eq("user_id", user.id).maybeSingle(),
     supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).maybeSingle(),
   ]);
+  // A failed lookup is not the same as "not a member": let the client retry instead of locking them out.
+  if (membershipError) return NextResponse.json({ error: "Couldn't check your access. Try again." }, { status: 503 });
   if (!membership) return NextResponse.json({ error: "You don't have access to this document." }, { status: 403 });
 
   const session = getLiveblocks().prepareSession(user.id, {

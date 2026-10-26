@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { accentColor } from "@/components/app/accent";
 import { TimeAgo } from "@/components/app/time-ago";
 import { bibliographyOrder, formatReference, searchText, toBibtex } from "@/lib/library/format";
 import { KIND_LABEL, type Source } from "@/lib/library/types";
-import { deleteSource } from "@/app/(app)/projects/[projectId]/library/actions";
+import { listSources, setSourceDeleted } from "@/app/(app)/projects/[projectId]/library/actions";
+import { useLibrarySync } from "@/lib/library/use-library-sync";
+import { useRequestKey } from "@/lib/use-request-key";
+import { downloadText, fileSlug } from "@/lib/download";
 import { SourceDialog } from "./source-dialog";
+import { ImportDialog } from "./import-dialog";
 
 type Props = {
   project: { id: string; name: string; accent: string };
@@ -21,14 +25,32 @@ type Props = {
   createdBy: Record<string, string | null>;
 };
 
-export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy }: Props) {
-  const [sources, setSources] = useState(initialSources);
+export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy }: Props) {
+  const [all, setAll] = useState(initialSources);
+  const [createdBy, setCreatedBy] = useState(initialCreatedBy);
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<{ editing?: Source } | null>(null);
+  const [importing, setImporting] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [undo, setUndo] = useState<Source | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [requestKey, renewRequestKey] = useRequestKey();
   const accent = accentColor(project.accent);
+
+  const sources = useMemo(() => all.filter((s) => !s.deleted_at), [all]);
+
+  // Keep up with co-authors' changes as they happen.
+  const refresh = useCallback(async () => {
+    try {
+      const result = await listSources(project.id);
+      if (result.ok) setAll(result.sources);
+    } catch {
+      // Offline for a moment; the next change or focus tries again.
+    }
+  }, [project.id]);
+  useLibrarySync(project.id, refresh);
 
   const shown = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -36,16 +58,27 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
   }, [sources, query]);
 
   const onSaved = (saved: Source) => {
-    setSources((list) => (list.some((s) => s.id === saved.id) ? list.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...list]));
+    setAll((list) => (list.some((s) => s.id === saved.id) ? list.map((s) => (s.id === saved.id ? saved : s)) : [saved, ...list]));
+    setCreatedBy((map) => (saved.id in map ? map : { ...map, [saved.id]: userId }));
+    if (!dialog?.editing) renewRequestKey();
     setDialog(null);
   };
 
-  const remove = async (id: string) => {
+  const setDeleted = async (source: Source, deleted: boolean) => {
+    if (busy) return;
+    setBusy(source.id);
     setError(null);
-    const result = await deleteSource(id);
-    if (!result.ok) return setError(result.error);
-    setSources((list) => list.filter((s) => s.id !== id));
-    setConfirming(null);
+    try {
+      const result = await setSourceDeleted(source.id, deleted);
+      if (!result.ok) return setError(result.error);
+      setAll((list) => list.map((s) => (s.id === source.id ? { ...s, deleted_at: result.deletedAt } : s)));
+      setConfirming(null);
+      setUndo(deleted ? source : null);
+    } catch {
+      setError("Couldn't reach AcademiaSync. Check your connection and try again.");
+    } finally {
+      setBusy(null);
+    }
   };
 
   const copy = async (s: Source) => {
@@ -58,15 +91,8 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
     }
   };
 
-  const downloadBibtex = () => {
-    const blob = new Blob([toBibtex([...sources].sort(bibliographyOrder))], { type: "text/x-bibtex" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${project.name.replace(/[^\w-]+/g, "-").toLowerCase() || "library"}.bib`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const downloadBibtex = () =>
+    downloadText(`${fileSlug(project.name, "library")}.bib`, toBibtex([...sources].sort(bibliographyOrder)), "text/x-bibtex");
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -84,6 +110,14 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
             {sources.length > 0 && (
               <button onClick={downloadBibtex} className="inline-flex h-10 items-center gap-2 rounded-full border border-line px-4 text-sm transition-colors hover:border-line-strong">
                 <Download className="h-4 w-4" /> BibTeX
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={() => setImporting(true)}
+                className="inline-flex h-10 items-center gap-2 rounded-full border border-line px-4 text-sm transition-colors hover:border-line-strong"
+              >
+                <Upload className="h-4 w-4" aria-hidden /> Import
               </button>
             )}
             {canEdit && (
@@ -117,6 +151,23 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
       )}
 
       {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
+      <AnimatePresence>
+        {undo && (
+          <motion.p
+            role="status"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-bg-elev px-4 py-2.5 text-sm"
+          >
+            <span className="min-w-0 flex-1 truncate">Deleted “{undo.title}”. Citations of it now show a warning.</span>
+            <button onClick={() => void setDeleted(undo, false)} disabled={busy !== null} className="font-semibold text-iris hover:underline">
+              Undo
+            </button>
+            <button onClick={() => setUndo(null)} aria-label="Dismiss" className="text-muted hover:text-ink">×</button>
+          </motion.p>
+        )}
+      </AnimatePresence>
 
       <ul className="mt-6 flex flex-col gap-3">
         <AnimatePresence initial={false}>
@@ -167,8 +218,14 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                   {canDelete &&
                     (confirming === s.id ? (
                       <span className="ml-auto flex items-center gap-2 text-xs">
-                        <span className="text-muted">Delete? Citations of it will show as missing.</span>
-                        <button onClick={() => void remove(s.id)} className="rounded-lg bg-danger px-3 py-1.5 font-semibold text-bg">Delete</button>
+                        <span className="text-muted">Delete? Citations of it will show a warning. You can undo this.</span>
+                        <button
+                          onClick={() => void setDeleted(s, true)}
+                          disabled={busy !== null}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-danger px-3 py-1.5 font-semibold text-bg disabled:opacity-60"
+                        >
+                          {busy === s.id && <Loader2 className="h-3 w-3 animate-spin" aria-hidden />} Delete
+                        </button>
                         <button onClick={() => setConfirming(null)} className="rounded-lg px-3 py-1.5 text-muted hover:bg-iris-soft">Keep</button>
                       </span>
                     ) : (
@@ -188,7 +245,9 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
           <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-iris-soft text-iris"><BookMarked className="h-5 w-5" /></span>
           <h2 className="mt-4 font-serif text-2xl">No sources yet</h2>
           <p className="mx-auto mt-2 max-w-sm text-muted">
-            {canEdit ? "Paste a DOI and the title, authors and journal fill themselves in." : "Sources your team adds will appear here."}
+            {canEdit
+              ? "Paste a DOI, arXiv or PubMed id and the details fill themselves in, or import a BibTeX or RIS file from Zotero, Mendeley or EndNote."
+              : "Sources your team adds will appear here."}
           </p>
           {canEdit && (
             <button onClick={() => setDialog({})} className="mt-5 inline-flex h-10 items-center gap-2 rounded-full bg-ink px-5 text-sm font-semibold text-bg">
@@ -200,7 +259,27 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
       {sources.length > 0 && shown.length === 0 && <p className="mt-8 text-center text-muted">Nothing matches “{query}”.</p>}
 
       <AnimatePresence>
-        {dialog && <SourceDialog projectId={project.id} editing={dialog.editing} onClose={() => setDialog(null)} onSaved={onSaved} />}
+        {dialog && (
+          <SourceDialog
+            key={dialog.editing?.id ?? "new"}
+            projectId={project.id}
+            editing={dialog.editing}
+            requestId={requestKey}
+            onClose={() => setDialog(null)}
+            onSaved={onSaved}
+          />
+        )}
+        {importing && (
+          <ImportDialog
+            projectId={project.id}
+            onClose={() => setImporting(false)}
+            onImported={(added) => {
+              setAll((list) => [...added, ...list]);
+              setCreatedBy((map) => ({ ...map, ...Object.fromEntries(added.map((a) => [a.id, userId])) }));
+              setImporting(false);
+            }}
+          />
+        )}
       </AnimatePresence>
     </div>
   );

@@ -32,4 +32,12 @@ export type SourceFields = {
   notes: string | null;
 };
 
-export type Source = SourceFields & { id: string; project_id: string; created_at: string };
+export type Source = SourceFields & {
+  id: string;
+  project_id: string;
+  created_at: string;
+  /** Sent back when saving an edit, so two people editing one source can't silently overwrite each other. */
+  updated_at: string;
+  /** Set when the source was deleted; citations of it still show it, with a warning. */
+  deleted_at: string | null;
+};

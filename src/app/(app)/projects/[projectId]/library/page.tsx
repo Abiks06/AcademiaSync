@@ -21,7 +21,7 @@ export default async function LibraryPage({ params }: PageProps<"/projects/[proj
     supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
     supabase
       .from("sources")
-      .select("id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, abstract, notes, created_by, created_at")
+      .select("id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, abstract, notes, created_by, created_at, updated_at, deleted_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
   ]);
@@ -39,6 +39,7 @@ export default async function LibraryPage({ params }: PageProps<"/projects/[proj
     id: r.id, project_id: r.project_id, kind: r.kind, title: r.title, authors: sanitizeAuthors(r.authors), year: r.year,
     container: r.container, volume: r.volume, issue: r.issue, pages: r.pages, publisher: r.publisher,
     doi: r.doi, url: r.url, abstract: r.abstract, notes: r.notes, created_at: r.created_at,
+    updated_at: r.updated_at, deleted_at: r.deleted_at,
   }));
 
   return (

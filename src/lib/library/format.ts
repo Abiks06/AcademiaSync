@@ -97,9 +97,29 @@ const BIBTEX_TYPE: Record<SourceFields["kind"], string> = {
   other: "misc",
 };
 
+const LATEX_SPECIALS: Record<string, string> = {
+  "&": "\\&",
+  "%": "\\%",
+  "$": "\\$",
+  "#": "\\#",
+  "_": "\\_",
+  "~": "\\textasciitilde{}",
+  "^": "\\textasciicircum{}",
+};
+
 function bibtexValue(value: string) {
-  // Braces delimit a BibTeX value, so stray ones would break the entry.
-  return value.replace(/[{}\\]/g, "").replace(/\s+/g, " ").trim();
+  // Braces delimit a BibTeX value and a backslash starts a LaTeX command, so stray ones would
+  // break the entry. The other LaTeX special characters are escaped so the file compiles.
+  return value
+    .replace(/[{}\\]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[&%$#_~^]/g, (ch) => LATEX_SPECIALS[ch]);
+}
+
+/** a, b, … z, aa, ab, … for the second, third and later sources sharing a cite key. */
+function keySuffix(n: number): string {
+  return n <= 26 ? String.fromCharCode(96 + n) : keySuffix(Math.floor((n - 1) / 26)) + String.fromCharCode(97 + ((n - 1) % 26));
 }
 
 function ascii(text: string) {
@@ -120,7 +140,7 @@ export function toBibtex(sources: SourceFields[]) {
       const base = citeKey(s);
       const seen = used.get(base) ?? 0;
       used.set(base, seen + 1);
-      const key = seen === 0 ? base : `${base}${String.fromCharCode(96 + seen)}`;
+      const key = seen === 0 ? base : `${base}${keySuffix(seen)}`;
 
       const fields: [string, string | number | null][] = [
         // Organisation names stay in braces so BibTeX doesn't split them like a person's name.
@@ -137,7 +157,14 @@ export function toBibtex(sources: SourceFields[]) {
       ];
       const body = fields
         .filter((f): f is [string, string | number] => f[1] !== null && f[1] !== "")
-        .map(([name, value]) => `  ${name} = {${name === "author" ? String(value) : bibtexValue(String(value))}}`)
+        .map(([name, value]) => {
+          if (name === "author") return `  author = {${value}}`;
+          // DOIs and links are verbatim in BibTeX; escaping them would change them.
+          if (name === "doi" || name === "url") return `  ${name} = {${String(value).replace(/[{}\\\s]/g, "")}}`;
+          // Double braces keep the title's capitals as typed.
+          if (name === "title") return `  title = {{${bibtexValue(String(value))}}}`;
+          return `  ${name} = {${bibtexValue(String(value))}}`;
+        })
         .join(",\n");
       return `@${BIBTEX_TYPE[s.kind]}{${key},\n${body}\n}`;
     })
