@@ -125,9 +125,9 @@ function NewDocumentForm({ projectId, requestId }: { projectId: string; requestI
     <form action={action} className="mt-4 flex flex-col gap-2 sm:flex-row">
       <input type="hidden" name="projectId" value={projectId} />
       <input type="hidden" name="requestId" value={state.requestId ?? requestId} />
-      <label htmlFor="doc-title" className="sr-only">New manuscript title</label>
+      <label htmlFor="new-doc-title" className="sr-only">New manuscript title</label>
       <input
-        id="doc-title"
+        id="new-doc-title"
         name="title"
         defaultValue={state.values?.title}
         required
