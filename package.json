@@ -10,14 +10,27 @@
     "typecheck": "next typegen && tsc --noEmit"
   },
   "dependencies": {
+    "@liveblocks/client": "^3.24.5",
+    "@liveblocks/node": "^3.24.5",
+    "@liveblocks/react": "^3.24.5",
+    "@liveblocks/react-tiptap": "^3.24.5",
+    "@liveblocks/react-ui": "^3.24.5",
+    "@liveblocks/yjs": "^3.24.5",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
+    "@tiptap/core": "^3.32.0",
+    "@tiptap/extensions": "^3.32.0",
+    "@tiptap/pm": "^3.32.0",
+    "@tiptap/react": "^3.32.0",
+    "@tiptap/starter-kit": "^3.32.0",
+    "@tiptap/suggestion": "^3.32.0",
     "clsx": "^2.1.1",
     "lucide-react": "^1.61.0",
     "motion": "^14.6.0",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "yjs": "^13.6.33",
     "zod": "^4.6.7"
   },
   "devDependencies": {

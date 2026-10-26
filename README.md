@@ -14,7 +14,7 @@ truth per piece of data, and nothing that fakes success.**
 | Motion | [Motion](https://motion.dev) (`motion/react`), respecting reduced-motion settings |
 | Auth | Supabase Auth: Google, Microsoft and email magic links |
 | Database | Supabase Postgres with row-level security on every table |
-| Live editing | Liveblocks + Yjs (next phase) |
+| Live editing | Liveblocks + Yjs through Tiptap; access decided by the database |
 
 ## What's in this phase
 
@@ -22,6 +22,7 @@ truth per piece of data, and nothing that fakes success.**
 - Sign-in with Google, Microsoft or a magic link, with session refresh in `src/proxy.ts`
 - Signed-in workspace: project list, create project, project overview, add manuscripts
 - Database schema with row-level security (`supabase/migrations`)
+- Live editor: real-time co-writing with cursors, presence, comments and version history
 - CI that lints, type-checks and builds every pull request
 
 ## Set up
@@ -35,9 +36,10 @@ truth per piece of data, and nothing that fakes success.**
 5. Before inviting real users, add your own email service under **Authentication → Emails → SMTP
    settings** (Resend, Postmark, SendGrid…). Supabase's built-in sender only delivers to members of
    your Supabase organization and is heavily rate-limited.
-6. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key. In production,
+6. Create a free [Liveblocks](https://liveblocks.io) project and copy its **secret key**.
+7. Copy `.env.example` to `.env.local` and fill in the project URL, publishable key and Liveblocks secret key. In production,
    also set `NEXT_PUBLIC_SITE_URL` to the public address so sign-in links point there.
-7. Install and run:
+8. Install and run:
 
 ```bash
 npm install
