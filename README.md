@@ -32,7 +32,8 @@ truth per piece of data, and nothing that fakes success.**
    `http://localhost:3000/auth/callback` (and your production URL) to the redirect URLs.
 4. Optional: enable the **Google** and **Azure (Microsoft)** providers under
    **Authentication → Providers**. Email magic links work without this.
-5. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key.
+5. Copy `.env.example` to `.env.local` and fill in the project URL and publishable key. In production,
+   also set `NEXT_PUBLIC_SITE_URL` to the public address so sign-in links point there.
 6. Install and run:
 
 ```bash

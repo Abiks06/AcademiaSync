@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { getSupabaseEnv } from "@/lib/env";
+import { AuthUnavailableError, isSignedOutError } from "./auth-errors";
 import type { Database } from "./types";
 
 export async function createClient() {
@@ -23,9 +24,13 @@ export async function createClient() {
   });
 }
 
-/** Returns the signed-in user, verified with Supabase Auth (not just read from the cookie). */
+/**
+ * Returns the signed-in user, verified with Supabase Auth (not just read from the cookie).
+ * `user` is null when nobody is signed in; an Auth outage throws AuthUnavailableError instead.
+ */
 export async function getUser() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getUser();
-  return { supabase, user: data.user };
+  const { data, error } = await supabase.auth.getUser();
+  if (error && !isSignedOutError(error)) throw new AuthUnavailableError(error);
+  return { supabase, user: error ? null : data.user };
 }

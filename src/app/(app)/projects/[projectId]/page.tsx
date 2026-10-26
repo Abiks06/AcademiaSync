@@ -1,9 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { notFound } from "next/navigation";
+import { z } from "zod";
 import { getUser } from "@/lib/supabase/server";
 import { ProjectOverview } from "@/components/app/project-overview";
 
 export default async function ProjectPage({ params }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params;
+  // Anything that isn't a UUID can't be a project; Postgres would reject it with an error instead.
+  if (!z.string().uuid().safeParse(projectId).success) notFound();
   const { supabase, user } = await getUser();
 
   const [projectResult, documentsResult, membersResult] = await Promise.all([
@@ -23,6 +27,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[proj
   return (
     <ProjectOverview
       project={project}
+      requestId={randomUUID()}
       documents={documents ?? []}
       members={(members ?? []).map((m) => {
         const profile = m.profiles as unknown as { full_name: string | null; avatar_url: string | null } | null;

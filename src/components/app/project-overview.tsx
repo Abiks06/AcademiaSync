@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef } from "react";
+import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { FileText, Loader2, Plus } from "lucide-react";
@@ -13,6 +13,8 @@ type Props = {
   project: { id: string; name: string; field: string | null; description: string | null; accent: string };
   documents: { id: string; title: string; status: DocumentStatus; updated_at: string }[];
   members: { id: string; role: ProjectRole; name: string; avatarUrl: string | null; isYou: boolean }[];
+  /** Idempotency key for the first "add manuscript" submit. */
+  requestId: string;
 };
 
 const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
@@ -21,7 +23,7 @@ const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
   final: { label: "Final", className: "bg-success/15 text-success" },
 };
 
-export function ProjectOverview({ project, documents, members }: Props) {
+export function ProjectOverview({ project, documents, members, requestId }: Props) {
   const accent = accentColor(project.accent);
 
   return (
@@ -71,7 +73,7 @@ export function ProjectOverview({ project, documents, members }: Props) {
           <span className="rounded-full bg-iris-soft px-2 py-0.5 font-mono text-[11px] text-iris">{documents.length}</span>
         </div>
 
-        <NewDocumentForm projectId={project.id} />
+        <NewDocumentForm key={project.id} projectId={project.id} requestId={requestId} />
 
         <motion.ul layout className="mt-4 flex flex-col gap-2">
           <AnimatePresence initial={false}>
@@ -107,21 +109,20 @@ export function ProjectOverview({ project, documents, members }: Props) {
   );
 }
 
-function NewDocumentForm({ projectId }: { projectId: string }) {
-  const [state, action] = useActionState<FormState, FormData>(createDocument, {});
-  const formRef = useRef<HTMLFormElement>(null);
-
-  useEffect(() => {
-    if (!state.error) formRef.current?.reset();
-  }, [state]);
+function NewDocumentForm({ projectId, requestId }: { projectId: string; requestId: string }) {
+  // React clears the form after each submit; on failure the action echoes the
+  // typed title back so it stays in the field.
+  const [state, action] = useActionState<FormState, FormData>(createDocument, { requestId });
 
   return (
-    <form ref={formRef} action={action} className="mt-4 flex flex-col gap-2 sm:flex-row">
+    <form action={action} className="mt-4 flex flex-col gap-2 sm:flex-row">
       <input type="hidden" name="projectId" value={projectId} />
+      <input type="hidden" name="requestId" value={state.requestId ?? requestId} />
       <label htmlFor="doc-title" className="sr-only">New manuscript title</label>
       <input
         id="doc-title"
         name="title"
+        defaultValue={state.values?.title}
         required
         maxLength={200}
         placeholder="Name a new manuscript, e.g. Results draft"

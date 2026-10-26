@@ -134,6 +134,8 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 function CreateProjectDialog({ onClose }: { onClose: () => void }) {
   const [state, action] = useActionState<FormState, FormData>(createProject, {});
   const [accent, setAccent] = useState<Accent>("iris");
+  // One key per dialog: if the same project is submitted twice, the server returns the first one.
+  const [requestId] = useState(newRequestId);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -166,6 +168,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
           animate={{ background: accentColor(accent), opacity: 0.35 }}
         />
         <form action={action} className="relative grid gap-5 p-6">
+          <input type="hidden" name="requestId" value={state.requestId ?? requestId} />
           <div className="flex items-start">
             <h2 id="new-project-title" className="font-serif text-2xl">New research project</h2>
             <button type="button" aria-label="Close" onClick={onClose} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-iris-soft">
@@ -173,13 +176,13 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
             </button>
           </div>
           <Field label="Project name" htmlFor="name">
-            <input id="name" name="name" required autoFocus maxLength={120} placeholder="Coastal microplastics study" className={inputClass} />
+            <input id="name" name="name" defaultValue={state.values?.name} required autoFocus maxLength={120} placeholder="Coastal microplastics study" className={inputClass} />
           </Field>
           <Field label="Field" htmlFor="field" hint="Optional">
-            <input id="field" name="field" maxLength={80} placeholder="Marine biology" className={inputClass} />
+            <input id="field" name="field" defaultValue={state.values?.field} maxLength={80} placeholder="Marine biology" className={inputClass} />
           </Field>
           <Field label="What is it about?" htmlFor="description" hint="Optional">
-            <textarea id="description" name="description" rows={3} maxLength={600} className={`${inputClass} h-auto py-3`} />
+            <textarea id="description" name="description" defaultValue={state.values?.description} rows={3} maxLength={600} className={`${inputClass} h-auto py-3`} />
           </Field>
           <fieldset>
             <legend className="mb-2 text-sm font-medium">Colour</legend>
@@ -227,4 +230,9 @@ function CreateButton() {
       {pending ? "Creating" : "Create project"}
     </button>
   );
+}
+
+function newRequestId() {
+  // randomUUID only exists in secure contexts; without it the server simply skips the duplicate check.
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : "";
 }

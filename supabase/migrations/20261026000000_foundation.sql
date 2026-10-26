@@ -56,10 +56,14 @@ create table public.projects (
   name text not null check (char_length(name) between 1 and 120),
   description text check (char_length(description) <= 600),
   field text check (char_length(field) <= 80),
-  accent text not null default 'iris',
+  accent text not null default 'iris' check (accent in ('iris', 'teal', 'amber', 'rose')),
   created_by uuid default auth.uid() references public.profiles (id) on delete set null,
+  -- Set by the form that created the row, so a resubmitted form finds its
+  -- first project instead of making a second one.
+  client_request_id uuid,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (created_by, client_request_id)
 );
 
 create table public.project_members (
@@ -135,8 +139,10 @@ create table public.documents (
   title text not null default 'Untitled manuscript' check (char_length(title) between 1 and 200),
   status public.document_status not null default 'draft',
   created_by uuid default auth.uid() references public.profiles (id) on delete set null,
+  client_request_id uuid,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  unique (created_by, client_request_id)
 );
 
 create index documents_project_idx on public.documents (project_id);

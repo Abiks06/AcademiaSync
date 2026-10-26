@@ -29,6 +29,7 @@ export type Project = {
   field: string | null;
   accent: string;
   created_by: string | null;
+  client_request_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -46,6 +47,7 @@ export type DocumentRow = {
   title: string;
   status: DocumentStatus;
   created_by: string | null;
+  client_request_id: string | null;
   created_at: string;
   updated_at: string;
 };

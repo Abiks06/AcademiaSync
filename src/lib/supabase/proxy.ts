@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { isSupabaseConfigured, getSupabaseEnv } from "@/lib/env";
+import { isSignedOutError } from "./auth-errors";
 
 const PROTECTED_PREFIXES = ["/projects"];
 
@@ -25,13 +26,19 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+
+  // If Auth itself is down, don't bounce a signed-in user to the sign-in page.
+  // Let the request through; the page checks again and shows a retry screen.
+  if (error && !isSignedOutError(error)) return response;
 
   const path = request.nextUrl.pathname;
   if (!user && PROTECTED_PREFIXES.some((p) => path.startsWith(p))) {
     const signIn = request.nextUrl.clone();
     signIn.pathname = "/sign-in";
-    signIn.searchParams.set("next", path);
+    signIn.search = "";
+    signIn.searchParams.set("next", path + request.nextUrl.search);
     return redirectKeepingCookies(signIn, response);
   }
   if (user && path === "/sign-in") {
