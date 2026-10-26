@@ -224,3 +224,15 @@ h3 {
   --lb-background: var(--panel-solid);
   --lb-foreground: var(--ink);
 }
+
+/* Reference lists formatted by CSL. */
+.csl-bibliography .csl-left-margin { display: inline-block; min-width: 2rem; }
+.csl-bibliography .csl-right-inline { display: inline; }
+
+/* Printing a manuscript prints the text and its references, nothing else. */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area { position: absolute; inset: 0 auto auto 0; width: 100%; background: white !important; color: black !important; box-shadow: none !important; border: 0 !important; backdrop-filter: none !important; }
+  .print-area .lb-root, .print-area [data-liveblocks-floating] { display: none !important; }
+}

@@ -5,6 +5,7 @@ import { getLiveblocks, isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { roomIdFor } from "@/lib/liveblocks/rooms";
 import { adminClient, isAdminConfigured } from "@/lib/supabase/admin";
 import { citationCounts, isBlank, manuscriptJSON, plainText, replaceManuscript, type DocJSON } from "@/lib/editor/ydoc";
+import { readStyle } from "@/lib/editor/schema-version";
 
 /** Automatic versions are at most this frequent; named ones are taken whenever asked. */
 const AUTO_VERSION_GAP = "10 minutes";
@@ -106,4 +107,22 @@ export async function restoreVersion(documentId: string, content: DocJSON, resto
   replaceManuscript(doc, content);
   await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), Y.encodeStateAsUpdate(doc, before));
   await saveLiveDocument(documentId);
+}
+
+/**
+ * The manuscript as it is now, for export: from the live room, or from Supabase's copy if
+ * Liveblocks can't be reached. Includes the document's citation style.
+ */
+export async function readManuscript(documentId: string) {
+  let doc: Y.Doc | null = null;
+  if (isLiveblocksConfigured()) doc = await readRoom(documentId).catch(() => null);
+  if ((!doc || isBlank(doc)) && isAdminConfigured()) {
+    const stored = await storedState(documentId);
+    if (stored) {
+      doc = new Y.Doc();
+      Y.applyUpdate(doc, stored);
+    }
+  }
+  if (!doc) return null;
+  return { json: manuscriptJSON(doc), style: readStyle(doc) };
 }

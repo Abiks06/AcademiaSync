@@ -7,22 +7,22 @@ const STEPS = [
   {
     stage: "Gather",
     title: "Build the library together",
-    body: "Import by DOI, arXiv or BibTeX, sync from Zotero, and annotate PDFs as a team.",
+    body: "Paste a DOI, arXiv or PubMed id, or import a BibTeX or RIS file from Zotero, Mendeley or EndNote.",
   },
   {
     stage: "Draft",
     title: "Write in the same document at once",
-    body: "Live cursors, comments and suggestions. Tasks sit next to the paragraphs they are about.",
+    body: "Live cursors and comments in one shared text, cited from one shared library.",
   },
   {
     stage: "Review",
     title: "Run proper review rounds",
-    body: "Invite advisors or co-authors as reviewers, score against a rubric, resolve every comment.",
+    body: "Invite co-authors and advisors as authors, contributors or commenters, and resolve every comment in the margin.",
   },
   {
     stage: "Submit",
     title: "Export a clean manuscript",
-    body: "DOCX, PDF or LaTeX with a correct bibliography, plus a record of who contributed what.",
+    body: "Word, Markdown or PDF, with citations and references in the style your journal asks for.",
   },
 ];
 

@@ -56,9 +56,9 @@ export function Hero() {
           transition={{ delay: 0.85, duration: 0.8, ease: EASE_OUT_EXPO }}
           className="mt-7 max-w-2xl text-lg leading-relaxed text-muted"
         >
-          AcademiaSync brings your manuscript, references, data and co-authors into one live
-          workspace. Every edit, citation and review comment lands for everyone, instantly, and
-          nothing is ever lost.
+          AcademiaSync brings your manuscript, references and co-authors into one live workspace.
+          Every edit, citation and comment lands for everyone instantly, and the server keeps
+          every version.
         </motion.p>
 
         <motion.div

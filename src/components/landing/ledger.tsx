@@ -17,16 +17,18 @@ export function Ledger() {
       <div className="mx-auto max-w-6xl">
         <Reveal className="grid items-end gap-6 md:grid-cols-2">
           <RevealItem>
-            <p className="font-mono text-xs uppercase tracking-[0.18em] text-rose">Contribution ledger</p>
+            <p className="font-mono text-xs uppercase tracking-[0.18em] text-rose">
+              Contribution ledger <span className="ml-2 rounded-full border border-line px-2 py-0.5 text-[10px] text-faint">Coming soon</span>
+            </p>
             <h2 className="mt-3 font-serif text-[clamp(2rem,4.5vw,3.4rem)] leading-[1.05] font-medium">
               Authorship conversations, settled by evidence.
             </h2>
           </RevealItem>
           <RevealItem>
             <p className="text-lg text-muted">
-              AcademiaSync quietly records who drafted, analysed, reviewed and sourced what, mapped to
-              the CRediT roles journals ask for. Students get proof of their work. Leads get a fair
-              author order.
+              AcademiaSync will record who drafted, analysed, reviewed and sourced what, mapped to the
+              CRediT roles journals ask for. Students get proof of their work. Leads get a fair author
+              order. This is a preview of what we are building.
             </p>
           </RevealItem>
         </Reveal>

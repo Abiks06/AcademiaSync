@@ -9,8 +9,11 @@ import { isNumericStyle, STYLE_LABEL } from "@/lib/library/styles";
 import type { Source } from "@/lib/library/types";
 import { downloadText, fileSlug } from "@/lib/download";
 import { useSources } from "./sources-context";
+import type { BibliographyState } from "@/lib/library/use-bibliography";
 
 type Props = {
+  /** The reference list in the document's style, formatted on the server. */
+  bib: BibliographyState;
   onClose: () => void;
   /** Ids of the sources the text cites, in order of first appearance, and how many citations there are. */
   citedIds: string[];
@@ -19,7 +22,7 @@ type Props = {
 };
 
 /** The bibliography for this manuscript: exactly the sources it cites. */
-export function ReferencesPanel({ onClose, citedIds, citationCount, documentTitle }: Props) {
+export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documentTitle }: Props) {
   const { byId, cite } = useSources();
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,11 +35,23 @@ export function ReferencesPanel({ onClose, citedIds, citationCount, documentTitl
     return { sources: ordered, missing: citedIds.length - found.length, deleted: found.filter((s) => s.deleted_at).length };
   }, [citedIds, byId, numeric]);
 
-  const entry = (s: Source) => (numeric ? `[${cite.numbers.get(s.id) ?? "?"}] ${formatReference(s)}` : formatReference(s));
+  // The server's CSL formatting once it has arrived; a plain fallback until then.
+  const formatted = useMemo(() => new Map(bib.entries.map((e) => [e.id, e])), [bib.entries]);
+  const listed = bib.entries.length > 0 ? bib.entries.flatMap((e) => (byId.get(e.id) ? [byId.get(e.id)!] : [])) : sources;
+  const entry = (s: Source) => formatted.get(s.id)?.text ?? (numeric ? `[${cite.numbers.get(s.id) ?? "?"}] ${formatReference(s)}` : formatReference(s));
 
   const copyAll = async () => {
     try {
-      await navigator.clipboard.writeText(sources.map(entry).join("\n\n"));
+      const text = listed.map(entry).join("\n\n");
+      const html = listed.map((s) => `<p>${formatted.get(s.id)?.html ?? entry(s)}</p>`).join("");
+      // Rich text keeps the italics a style asks for when pasted into Word or Docs.
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({ "text/plain": new Blob([text], { type: "text/plain" }), "text/html": new Blob([html], { type: "text/html" }) }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
       setCopied(true);
       setError(null);
       setTimeout(() => setCopied(false), 1800);
@@ -79,7 +94,7 @@ export function ReferencesPanel({ onClose, citedIds, citationCount, documentTitl
               {citationCount} {citationCount === 1 ? "citation" : "citations"} of {sources.length} {sources.length === 1 ? "source" : "sources"}. Updates as you write.
             </p>
             <ol className="space-y-4">
-              {sources.map((s, i) => (
+              {listed.map((s, i) => (
                 <motion.li
                   key={s.id}
                   initial={{ opacity: 0, y: 8 }}
@@ -87,7 +102,7 @@ export function ReferencesPanel({ onClose, citedIds, citationCount, documentTitl
                   transition={{ delay: Math.min(i, 10) * 0.03 }}
                   className={`border-l-2 pl-4 text-sm leading-relaxed [text-indent:-1.5rem] [padding-left:2.5rem] ${s.deleted_at ? "border-amber/60 text-muted" : "border-iris/40"}`}
                 >
-                  {entry(s)}
+                  {formatted.get(s.id) ? <span dangerouslySetInnerHTML={{ __html: formatted.get(s.id)!.html }} /> : entry(s)}
                   {s.deleted_at && <span className="ml-1 text-amber"> (deleted from the library)</span>}
                 </motion.li>
               ))}

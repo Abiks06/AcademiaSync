@@ -9,6 +9,8 @@ import { normalizeDoi } from "@/lib/library/crossref";
 import { lookupIdentifier } from "@/lib/library/lookup";
 import { sanitizeAuthors } from "@/lib/library/authors";
 import { duplicateKeys } from "@/lib/library/csl-json";
+import { formatBibliography, type BibliographyEntry } from "@/lib/library/bibliography";
+import { isCitationStyle } from "@/lib/library/styles";
 import { IMPORT_LIMITS, parseReferences } from "@/lib/library/parse-references";
 import { SOURCE_KINDS, type Source, type SourceFields } from "@/lib/library/types";
 
@@ -301,4 +303,32 @@ export async function sourceUsage(sourceId: string): Promise<UsageResult> {
   const { data, error } = await auth.supabase.from("document_citations").select("citations").eq("source_id", sourceId);
   if (error) return { ok: false, error: dbErrorMessage(error, "check where this source is cited") };
   return { ok: true, citations: data.reduce((sum, row) => sum + row.citations, 0), documents: data.length };
+}
+
+export type BibliographyResult = { ok: true; entries: BibliographyEntry[] } | { ok: false; error: string };
+
+/**
+ * The reference list for a manuscript, formatted on the server with the style's CSL file.
+ * `sourceIds` is in order of first citation; sources outside the project are left out.
+ */
+export async function bibliography(input: { projectId: string; sourceIds: string[]; style: string }): Promise<BibliographyResult> {
+  if (!uuid.safeParse(input.projectId).success) return { ok: false, error: "Unknown project." };
+  if (!isCitationStyle(input.style)) return { ok: false, error: "Unknown citation style." };
+  const ids = z.array(uuid).max(2000).safeParse(input.sourceIds);
+  if (!ids.success) return { ok: false, error: "Couldn't read the citations." };
+  if (ids.data.length === 0) return { ok: true, entries: [] };
+
+  const auth = await actionUser();
+  if (!auth.ok) return auth;
+  const { data, error } = await auth.supabase.from("sources").select(COLUMNS).eq("project_id", input.projectId).in("id", ids.data);
+  if (error) return { ok: false, error: dbErrorMessage(error, "format the references") };
+
+  const byId = new Map(data.map((row) => [row.id, toSource(row)]));
+  const ordered = ids.data.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
+  try {
+    return { ok: true, entries: formatBibliography(ordered, input.style) };
+  } catch (e) {
+    console.error("[bibliography]", e);
+    return { ok: false, error: "Couldn't format the references in this style." };
+  }
 }

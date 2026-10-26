@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, ChevronLeft, History, Lock, Quote, WifiOff } from "lucide-react";
+import { BookMarked, ChevronLeft, Download, History, Lock, Quote, WifiOff } from "lucide-react";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
@@ -36,6 +36,7 @@ import { CITATION_NODE, citationItems, citationMode, collectCitations, type Cita
 import { CITATION_STYLES, STYLE_LABEL, citeContext, formatCitation, isCitationStyle, type CitationStyle } from "@/lib/library/styles";
 import type { Source } from "@/lib/library/types";
 import { useLibrarySync } from "@/lib/library/use-library-sync";
+import { useBibliography } from "@/lib/library/use-bibliography";
 import { useRequestKey } from "@/lib/use-request-key";
 import { SCHEMA_VERSION, canOpen, claimSchema, documentMeta, readStyle, writeStyle } from "@/lib/editor/schema-version";
 import { listSources } from "@/app/(app)/projects/[projectId]/library/actions";
@@ -43,6 +44,7 @@ import { SourceDialog } from "@/components/library/source-dialog";
 import { Citation } from "./citation";
 import { CitationPicker } from "./citation-picker";
 import { ReferencesPanel } from "./references-panel";
+import { ReferencesSection } from "./references-section";
 import { SourcesContext } from "./sources-context";
 import { PresenceStack } from "./presence";
 import { SyncStatus } from "./sync-status";
@@ -259,6 +261,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
 
   const byId = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const live = useMemo(() => sources.filter((s) => !s.deleted_at), [sources]);
+  // Any edit to a cited source (or deleting it) re-formats the reference list.
+  const citedVersion = cited.ids.map((id) => `${byId.get(id)?.updated_at ?? ""}${byId.get(id)?.deleted_at ?? ""}`).join();
+  const bib = useBibliography(project.id, cited.ids, style, citedVersion);
   const sourcesValue = useMemo(
     () => ({ byId, checking, cite: citeContext(style, cited.ids, (id) => byId.get(id)) }),
     [byId, checking, style, cited.ids],
@@ -446,6 +451,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
               <BookMarked className="h-4 w-4 text-iris" /> References
               {cited.ids.length > 0 && <span className="font-mono text-xs text-faint">{cited.ids.length}</span>}
             </button>
+            <ExportMenu documentId={document.id} />
             <button
               onClick={() => setVersionsOpen(true)}
               className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
@@ -477,8 +483,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
         className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
       >
-        <div className="glass relative min-h-[70dvh] rounded-2xl px-6 py-10 sm:px-14 sm:py-14">
+        <div className="print-area glass relative min-h-[70dvh] rounded-2xl px-6 py-10 sm:px-14 sm:py-14">
           <div className="mx-auto max-w-[46rem]">
+            <h1 className="mb-8 hidden font-serif text-3xl print:block">{document.title}</h1>
             <EditorContent editor={editor} />
             {editor && canEdit && <FloatingToolbar editor={editor} />}
             {editor && !canEdit && (
@@ -488,6 +495,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
               </FloatingToolbar>
             )}
             {editor && <FloatingComposer editor={editor} style={{ width: 320 }} />}
+            <ReferencesSection bib={bib} style={style} />
           </div>
         </div>
         <Comments editor={editor} />
@@ -516,6 +524,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       <AnimatePresence>
         {referencesOpen && (
           <ReferencesPanel
+            bib={bib}
             onClose={() => setReferencesOpen(false)}
             citedIds={cited.ids}
             citationCount={cited.count}
@@ -525,6 +534,23 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       </AnimatePresence>
     </div>
     </SourcesContext.Provider>
+  );
+}
+
+/** Word and Markdown come from the server with citations and references in the document's style. */
+function ExportMenu({ documentId }: { documentId: string }) {
+  const href = (format: string) => `/api/documents/${documentId}/export?format=${format}`;
+  return (
+    <details className="group relative">
+      <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong [&::-webkit-details-marker]:hidden">
+        <Download className="h-4 w-4 text-iris" aria-hidden /> Export
+      </summary>
+      <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-bg-elev p-1 text-sm shadow-xl">
+        <a href={href("docx")} className="block rounded-lg px-3 py-2 hover:bg-iris-soft">Word (.docx)</a>
+        <a href={href("md")} className="block rounded-lg px-3 py-2 hover:bg-iris-soft">Markdown, for Pandoc or Overleaf</a>
+        <button onClick={() => window.print()} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-iris-soft">Print or save as PDF</button>
+      </div>
+    </details>
   );
 }
 
