@@ -137,6 +137,10 @@ export type Database = {
       project_role_of: { Args: { p_project: string }; Returns: ProjectRole };
       can_edit_project: { Args: { p_project: string }; Returns: boolean };
       set_source_deleted: { Args: { p_source: string; p_deleted: boolean }; Returns: string | null };
+      invite_preview: {
+        Args: { p_token: string };
+        Returns: { project_name: string; inviter_name: string; role: ProjectRole; email_hint: string; state: "open" | "used" | "expired" }[];
+      };
       save_document_state: {
         Args: {
           p_document: string;

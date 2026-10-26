@@ -256,3 +256,25 @@ describe("server-side document state", () => {
     );
   });
 });
+
+describe("invite links", () => {
+  it("shows a preview for the right token only, without the full address", async () => {
+    const { rows } = await db.as<{ token: string }>(ben, "insert into public.project_invites (project_id, email, role) values ($1, 'zoe@uni.edu', 'contributor') returning token", [projectId]);
+    const preview = await db.as(null, "select * from public.invite_preview($1)", [rows[0].token]);
+    expect(preview.rows).toEqual([{ project_name: "Test project", inviter_name: "Ben", role: "contributor", email_hint: "z•••@uni.edu", state: "open" }]);
+    const wrong = await db.as(null, "select * from public.invite_preview($1)", ["0".repeat(48)]);
+    expect(wrong.rows).toHaveLength(0);
+  });
+
+  it("lets only the invited address accept, once", async () => {
+    const zoe = await db.user("Zoe");
+    await db.admin("update auth.users set email = 'zoe2@uni.edu' where id = $1", [zoe]);
+    const { rows } = await db.as<{ token: string }>(ada, "insert into public.project_invites (project_id, email, role) values ($1, 'zoe2@uni.edu', 'commenter') returning token", [projectId]);
+    await expectCode(db.as(eve, "select public.accept_project_invite($1)", [rows[0].token]), PG.raiseException);
+    await db.as(zoe, "select public.accept_project_invite($1)", [rows[0].token]);
+    const member = await db.as(zoe, "select role from public.project_members where project_id = $1 and user_id = $2", [projectId, zoe]);
+    expect(member.rows).toEqual([{ role: "commenter" }]);
+    const again = await db.as(null, "select state from public.invite_preview($1)", [rows[0].token]);
+    expect(again.rows).toEqual([{ state: "used" }]);
+  });
+});

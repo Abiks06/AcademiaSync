@@ -1,20 +1,23 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, FileText, Loader2, Plus } from "lucide-react";
+import { BookMarked, FileText, Loader2, Plus, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
 import { accentColor } from "./accent";
 import { TimeAgo } from "./time-ago";
+import { MembersPanel, type Member, type PendingInvite } from "./members-panel";
 
 type Props = {
   project: { id: string; name: string; field: string | null; description: string | null; accent: string };
   documents: { id: string; title: string; status: DocumentStatus; updated_at: string }[];
-  members: { id: string; role: ProjectRole; name: string; avatarUrl: string | null; isYou: boolean }[];
+  members: Member[];
+  invites: PendingInvite[];
+  myRole: ProjectRole | null;
   /** Idempotency key for the first "add manuscript" submit. */
   requestId: string;
 };
@@ -25,8 +28,9 @@ const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
   final: { label: "Final", className: "bg-success/15 text-success" },
 };
 
-export function ProjectOverview({ project, documents, members, requestId }: Props) {
+export function ProjectOverview({ project, documents, members, invites, myRole, requestId }: Props) {
   const accent = accentColor(project.accent);
+  const [membersOpen, setMembersOpen] = useState(false);
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -62,9 +66,13 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
                 </motion.div>
               ))}
             </div>
-            <span className="ml-3 text-sm text-muted">
+            <button
+              onClick={() => setMembersOpen(true)}
+              className="ml-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm text-muted transition-colors hover:bg-iris-soft hover:text-ink"
+            >
               {members.length} {members.length === 1 ? "member" : "members"}
-            </span>
+              {(myRole === "owner" || myRole === "author") && <UserPlus className="h-3.5 w-3.5 text-iris" aria-label="Invite" />}
+            </button>
             <Link
               href={`/projects/${project.id}/library`}
               className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
@@ -118,6 +126,11 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
           <p className="mt-6 text-sm text-muted">No manuscripts yet. Name your first one above to start writing.</p>
         )}
       </section>
+      <AnimatePresence>
+        {membersOpen && (
+          <MembersPanel projectId={project.id} members={members} invites={invites} myRole={myRole} onClose={() => setMembersOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

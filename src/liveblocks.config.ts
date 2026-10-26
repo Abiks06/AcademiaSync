@@ -9,10 +9,8 @@ declare global {
       id: string;
       info: { name: string; avatar?: string; color: string };
     };
-    RoomEvent:
-      | { type: "schema-upgraded"; schema: number }
-      // Sent by the server when someone's access to the project changes.
-      | { type: "access-changed" };
+    // Sent by the server when someone's access to the project changes.
+    RoomEvent: { type: "access-changed" };
   }
 }
 

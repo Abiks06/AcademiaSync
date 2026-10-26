@@ -5,6 +5,7 @@ import "@liveblocks/react-tiptap/styles.css";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { BookMarked, ChevronLeft, History, Lock, Quote, WifiOff } from "lucide-react";
 import {
@@ -12,6 +13,7 @@ import {
   LiveblocksProvider,
   RoomProvider,
   useErrorListener,
+  useEventListener,
   useOthers,
   useRoom,
   useStatus,
@@ -60,6 +62,7 @@ const SYNC_IDLE_MS = 20_000;
 
 export function DocumentWorkspace(props: WorkspaceProps) {
   const [signedOut, setSignedOut] = useState(false);
+  const [noAccess, setNoAccess] = useState(false);
   if (!props.liveReady) {
     return (
       <Notice
@@ -80,6 +83,7 @@ export function DocumentWorkspace(props: WorkspaceProps) {
             body: JSON.stringify({ room, schema: SCHEMA_VERSION }),
           });
           setSignedOut(res.status === 401);
+          setNoAccess(res.status === 403);
           if (res.ok) return await res.json();
           const { error } = (await res.json().catch(() => ({}))) as { error?: string };
           const reason = error ?? "Couldn't open this document.";
@@ -99,13 +103,13 @@ export function DocumentWorkspace(props: WorkspaceProps) {
       }}
     >
       <RoomProvider id={roomIdFor(props.document.id)} initialPresence={{ schema: SCHEMA_VERSION }}>
-        <Shell {...props} signedOut={signedOut} />
+        <Shell {...props} signedOut={signedOut} noAccess={noAccess} />
       </RoomProvider>
     </LiveblocksProvider>
   );
 }
 
-function Shell({ signedOut, ...props }: WorkspaceProps & { signedOut: boolean }) {
+function Shell({ signedOut, noAccess, ...props }: WorkspaceProps & { signedOut: boolean; noAccess: boolean }) {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [opened, setOpened] = useState(false);
   const markOpened = useCallback(() => setOpened(true), []);
@@ -121,6 +125,10 @@ function Shell({ signedOut, ...props }: WorkspaceProps & { signedOut: boolean })
     if (status === "connected") setConnectionError(null);
   }
 
+  // Removed from the project: the editor goes, since nothing typed here could be saved.
+  if (noAccess) {
+    return <Notice title="You no longer have access" body="You were removed from this project, or it was deleted. Ask an owner if you think this is a mistake." project={props.project} />;
+  }
   // Never swap out an editor that's already open: unsynced text lives in it.
   if (signedOut && opened) {
     return (
@@ -240,6 +248,15 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const canCite = canEdit && !olderTabOpen;
   const othersHere = useOthers((others) => new Set(others.map((o) => o.id)).size);
 
+  // An owner changed someone's access: get a fresh token (which fails if it was ours that
+  // was removed) and reload the page data, so a new role takes effect straight away.
+  const router = useRouter();
+  useEventListener(({ event }) => {
+    if (event.type !== "access-changed") return;
+    room.reconnect();
+    router.refresh();
+  });
+
   const byId = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const live = useMemo(() => sources.filter((s) => !s.deleted_at), [sources]);
   const sourcesValue = useMemo(
@@ -275,6 +292,11 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       },
     },
   });
+
+  // A role change arrives as new page data; the editor follows it without a reload.
+  useEffect(() => {
+    if (editor && editor.isEditable !== canEdit) editor.setEditable(canEdit);
+  }, [editor, canEdit]);
 
   // Opening the picker with a citation selected edits that citation.
   const startCiting = useCallback(() => {
