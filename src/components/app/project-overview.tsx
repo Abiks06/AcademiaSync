@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { FileText, Loader2, Plus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
@@ -86,18 +87,23 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ delay: i * 0.03 }}
-                className="glass group flex items-center gap-4 rounded-xl px-4 py-3.5 transition-colors hover:border-line-strong"
+                className="glass group rounded-xl transition-colors hover:border-line-strong"
               >
-                <span className="grid h-9 w-9 place-items-center rounded-lg bg-iris-soft text-iris transition-transform group-hover:scale-110">
-                  <FileText className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium">{d.title}</p>
-                  <p className="text-xs text-faint"><TimeAgo iso={d.updated_at} prefix="Updated " /></p>
-                </div>
-                <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS[d.status].className}`}>
-                  {STATUS[d.status].label}
-                </span>
+                <Link
+                  href={`/projects/${project.id}/documents/${d.id}`}
+                  className="flex items-center gap-4 rounded-xl px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-iris"
+                >
+                  <span className="grid h-9 w-9 place-items-center rounded-lg bg-iris-soft text-iris transition-transform group-hover:scale-110">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{d.title}</p>
+                    <p className="text-xs text-faint"><TimeAgo iso={d.updated_at} prefix="Updated " /></p>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS[d.status].className}`}>
+                    {STATUS[d.status].label}
+                  </span>
+                </Link>
               </motion.li>
             ))}
           </AnimatePresence>

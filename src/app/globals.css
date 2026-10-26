@@ -173,3 +173,43 @@ h3 {
     scroll-behavior: auto !important;
   }
 }
+
+/* Manuscript editor ---------------------------------------------------------- */
+
+.manuscript-prose {
+  min-height: 52dvh;
+  outline: none;
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  line-height: 1.8;
+  color: var(--ink);
+  caret-color: var(--iris);
+}
+.manuscript-prose > * + * { margin-top: 1em; }
+.manuscript-prose h1 { font-size: 2rem; line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; margin-top: 1.6em; }
+.manuscript-prose h2 { font-size: 1.5rem; line-height: 1.2; font-weight: 600; margin-top: 1.5em; }
+.manuscript-prose h3 { font-size: 1.2rem; font-weight: 600; margin-top: 1.4em; }
+.manuscript-prose ul, .manuscript-prose ol { padding-left: 1.5em; }
+.manuscript-prose ul { list-style: disc; }
+.manuscript-prose ol { list-style: decimal; }
+.manuscript-prose li > p { margin: 0; }
+.manuscript-prose blockquote { border-left: 3px solid var(--iris); padding-left: 1em; color: var(--muted); font-style: italic; }
+.manuscript-prose code { font-family: var(--font-mono); font-size: 0.85em; background: var(--iris-soft); border-radius: 0.35rem; padding: 0.1em 0.35em; }
+.manuscript-prose pre { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1rem; overflow-x: auto; }
+.manuscript-prose pre code { background: none; padding: 0; }
+.manuscript-prose hr { border: 0; border-top: 1px solid var(--line-strong); margin: 2em 0; }
+.manuscript-prose a { color: var(--iris); text-decoration: underline; text-underline-offset: 3px; }
+.manuscript-prose p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  color: var(--faint);
+}
+
+/* Liveblocks comments and toolbars follow the app's palette in light and dark. */
+.lb-root.lb-root {
+  --lb-accent: var(--iris-strong);
+  --lb-background: var(--panel-solid);
+  --lb-foreground: var(--ink);
+}
