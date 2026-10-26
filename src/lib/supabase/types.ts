@@ -28,7 +28,7 @@ export type Project = {
   description: string | null;
   field: string | null;
   accent: string;
-  created_by: string;
+  created_by: string | null;
   created_at: string;
   updated_at: string;
 };

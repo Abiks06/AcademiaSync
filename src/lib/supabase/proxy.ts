@@ -32,14 +32,21 @@ export async function updateSession(request: NextRequest) {
     const signIn = request.nextUrl.clone();
     signIn.pathname = "/sign-in";
     signIn.searchParams.set("next", path);
-    return NextResponse.redirect(signIn);
+    return redirectKeepingCookies(signIn, response);
   }
   if (user && path === "/sign-in") {
     const home = request.nextUrl.clone();
     home.pathname = "/projects";
     home.search = "";
-    return NextResponse.redirect(home);
+    return redirectKeepingCookies(home, response);
   }
 
   return response;
+}
+
+/** Carries any refreshed session cookies onto the redirect so the browser doesn't keep stale ones. */
+function redirectKeepingCookies(url: URL, from: NextResponse) {
+  const redirect = NextResponse.redirect(url);
+  from.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
+  return redirect;
 }

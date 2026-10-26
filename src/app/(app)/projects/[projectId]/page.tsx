@@ -6,11 +6,16 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[proj
   const { projectId } = await params;
   const { supabase, user } = await getUser();
 
-  const [{ data: project }, { data: documents }, { data: members }] = await Promise.all([
+  const [projectResult, documentsResult, membersResult] = await Promise.all([
     supabase.from("projects").select("id, name, field, description, accent").eq("id", projectId).maybeSingle(),
     supabase.from("documents").select("id, title, status, updated_at").eq("project_id", projectId).order("updated_at", { ascending: false }),
     supabase.from("project_members").select("user_id, role, profiles(full_name, avatar_url)").eq("project_id", projectId),
   ]);
+  const error = projectResult.error ?? documentsResult.error ?? membersResult.error;
+  if (error) throw new Error(`Couldn't load this project: ${error.message}`);
+  const project = projectResult.data;
+  const documents = documentsResult.data;
+  const members = membersResult.data;
 
   // Row-level security returns nothing for projects you aren't in, which reads as "not found".
   if (!project) notFound();

@@ -40,6 +40,15 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
+-- Users who signed up before this migration get a profile too.
+insert into public.profiles (id, full_name, avatar_url)
+select
+  u.id,
+  coalesce(u.raw_user_meta_data ->> 'full_name', u.raw_user_meta_data ->> 'name', split_part(u.email, '@', 1)),
+  u.raw_user_meta_data ->> 'avatar_url'
+from auth.users u
+on conflict (id) do nothing;
+
 -- Projects and membership ----------------------------------------------------
 
 create table public.projects (
@@ -48,7 +57,7 @@ create table public.projects (
   description text check (char_length(description) <= 600),
   field text check (char_length(field) <= 80),
   accent text not null default 'iris',
-  created_by uuid not null default auth.uid() references public.profiles (id) on delete cascade,
+  created_by uuid default auth.uid() references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -138,7 +147,7 @@ create table public.document_versions (
   label text,
   content jsonb not null,
   plain_text text not null default '',
-  created_by uuid references public.profiles (id) on delete set null,
+  created_by uuid default auth.uid() references public.profiles (id) on delete set null,
   created_at timestamptz not null default now()
 );
 
@@ -149,15 +158,18 @@ create index document_versions_document_idx on public.document_versions (documen
 create table public.project_invites (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id) on delete cascade,
-  email text not null check (position('@' in email) > 1),
+  email text not null check (position('@' in email) > 1 and email = lower(email)),
   role public.project_role not null default 'author' check (role <> 'owner'),
   token text not null unique default encode(gen_random_bytes(24), 'hex'),
   invited_by uuid not null default auth.uid() references public.profiles (id) on delete cascade,
   created_at timestamptz not null default now(),
   expires_at timestamptz not null default now() + interval '14 days',
-  accepted_at timestamptz,
-  unique (project_id, email)
+  accepted_at timestamptz
 );
+
+-- Only one open invite per address; accepted invites don't block a re-invite.
+create unique index project_invites_open_idx on public.project_invites (project_id, email)
+  where accepted_at is null;
 
 -- Accepting an invite checks the token and the signed-in user's email.
 create or replace function public.accept_project_invite(p_token text)
@@ -171,12 +183,17 @@ declare
   user_email text;
 begin
   select email into user_email from auth.users where id = auth.uid();
+  if user_email is null then
+    raise exception 'Sign in with the email address the invite was sent to.';
+  end if;
+  -- Lock the invite so a concurrent revoke can't race the acceptance.
   select * into inv from public.project_invites
-    where token = p_token and accepted_at is null and expires_at > now();
+    where token = p_token and accepted_at is null and expires_at > now()
+    for update;
   if inv.id is null then
     raise exception 'This invite link is invalid or has expired.';
   end if;
-  if lower(inv.email) <> lower(user_email) then
+  if inv.email <> lower(user_email) then
     raise exception 'This invite was sent to a different email address.';
   end if;
   insert into public.project_members (project_id, user_id, role)
@@ -203,6 +220,68 @@ create trigger profiles_touch before update on public.profiles for each row exec
 create trigger projects_touch before update on public.projects for each row execute function public.touch_updated_at();
 create trigger documents_touch before update on public.documents for each row execute function public.touch_updated_at();
 
+create or replace function public.touch_project_from_document()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.projects set updated_at = now() where id = new.project_id;
+  return new;
+end;
+$$;
+
+create trigger documents_touch_project
+  after insert or update on public.documents
+  for each row execute function public.touch_project_from_document();
+
+-- Every project keeps at least one owner. Deleting the project, or the owner's
+-- whole account, is still allowed.
+create or replace function public.keep_an_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if old.role = 'owner'
+     and (tg_op = 'DELETE' or new.role <> 'owner')
+     and exists (select 1 from public.projects where id = old.project_id)
+     and exists (select 1 from public.profiles where id = old.user_id)
+     and not exists (
+       select 1 from public.project_members
+       where project_id = old.project_id and role = 'owner' and user_id <> old.user_id
+     ) then
+    raise exception 'A project needs at least one owner. Make someone else an owner first.';
+  end if;
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger project_members_keep_owner
+  before update or delete on public.project_members
+  for each row execute function public.keep_an_owner();
+
+-- Column-level privileges: clients can only change what the UI edits.
+-- Authorship, ownership and timestamps are set by the database.
+revoke insert, update on public.profiles from anon, authenticated;
+grant update (full_name, institution, orcid) on public.profiles to authenticated;
+
+revoke update on public.projects from anon, authenticated;
+grant update (name, description, field, accent) on public.projects to authenticated;
+
+revoke insert, update on public.project_members from anon, authenticated;
+grant update (role) on public.project_members to authenticated;
+
+revoke update on public.documents from anon, authenticated;
+grant update (title, status) on public.documents to authenticated;
+
+revoke insert, update on public.document_versions from anon, authenticated;
+grant insert (document_id, label, content, plain_text) on public.document_versions to authenticated;
+
+revoke update on public.project_invites from anon, authenticated;
+
 -- Row-level security ---------------------------------------------------------
 
 alter table public.profiles enable row level security;
@@ -224,6 +303,8 @@ create policy "Read own profile and teammates" on public.profiles for select to 
 create policy "Update own profile" on public.profiles for update to authenticated
   using (id = auth.uid()) with check (id = auth.uid());
 
+-- created_by is immutable (see grants), so the creator clause only matters for
+-- the row returned by the insert, before the owner membership is visible.
 create policy "Members read projects" on public.projects for select to authenticated
   using (public.is_project_member(id) or created_by = auth.uid());
 create policy "Signed-in users create projects" on public.projects for insert to authenticated
@@ -252,7 +333,10 @@ create policy "Owners and authors delete documents" on public.documents for dele
 create policy "Members read versions" on public.document_versions for select to authenticated
   using (exists (select 1 from public.documents d where d.id = document_id and public.is_project_member(d.project_id)));
 create policy "Editors save versions" on public.document_versions for insert to authenticated
-  with check (exists (select 1 from public.documents d where d.id = document_id and public.can_edit_project(d.project_id)));
+  with check (
+    created_by = auth.uid()
+    and exists (select 1 from public.documents d where d.id = document_id and public.can_edit_project(d.project_id))
+  );
 
 create policy "Owners and authors see invites" on public.project_invites for select to authenticated
   using (public.project_role_of(project_id) in ('owner', 'author'));
