@@ -99,7 +99,7 @@ export async function saveVersion(input: z.input<typeof snapshotSchema>): Promis
       label: label || null,
       content: content as never,
       plain_text: plainText,
-      created_by: auth.user.id,
+      // created_by is filled by the column default (auth.uid()); clients may not write it.
     })
     .select("id")
     .single();
