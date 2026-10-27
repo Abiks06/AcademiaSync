@@ -62,3 +62,21 @@ revoke execute on function public.member_save_document_state(uuid, bytea, text, 
 revoke execute on function public.member_document_state(uuid) from public, anon;
 grant execute on function public.member_save_document_state(uuid, bytea, text, jsonb, jsonb, text, interval, bigint) to authenticated;
 grant execute on function public.member_document_state(uuid) to authenticated;
+
+-- Whether every manuscript in a project has been saved by the server at least once, so the
+-- library can tell "cited nowhere" from "not counted yet".
+create or replace function public.citation_index_complete(p_project uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select public.is_project_member(p_project) and not exists (
+    select 1 from public.documents d
+    where d.project_id = p_project
+      and not exists (select 1 from public.document_state s where s.document_id = d.id)
+  );
+$$;
+revoke execute on function public.citation_index_complete(uuid) from public, anon;
+grant execute on function public.citation_index_complete(uuid) to authenticated;

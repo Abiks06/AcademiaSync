@@ -28,7 +28,7 @@ export function Features() {
 
         <Reveal className="mt-14 grid gap-4 md:grid-cols-6" delay={0.1}>
           <Tile className="md:col-span-4" icon={<Users className="h-4 w-4" />} title="Live co-editing that never loses a word"
-            body="Cursors, comments and who is where, with every change saved to the server. Keep typing through a dropped connection and it merges when you are back.">
+            body="Cursors, comments and who is where, with every change copied to the server as you write. Keep typing through a dropped connection and it merges when you are back.">
             <PresenceDemo />
           </Tile>
           <Tile className="md:col-span-2" icon={<Quote className="h-4 w-4" />} title="Citations that write themselves"
@@ -191,11 +191,11 @@ function HistoryDemo() {
 
 function LibraryStrip() {
   const items = [
-    ["PDF", "Lusher 2017 · Microplastics in the marine environment"],
-    ["CSV", "lagoon_counts_2026.csv · 1,284 rows"],
-    ["FIG", "Figure 3 · FTIR spectra"],
-    ["PDF", "Hidalgo-Ruz 2012 · Methods review"],
-    ["LINK", "github.com/lab/particle-pipeline"],
+    ["DOI", "Lusher 2017 · Microplastics in the marine environment"],
+    ["ARXIV", "Koelmans 2024 · Risk of microplastics, a meta-analysis"],
+    ["BOOK", "Andrady 2015 · Plastics and environmental sustainability"],
+    ["DOI", "Hidalgo-Ruz 2012 · Methods review"],
+    ["PUBMED", "Wright 2017 · Plastic and human health"],
   ];
   return (
     <div className="relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_10%,black_90%,transparent)]">

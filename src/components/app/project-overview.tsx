@@ -1,9 +1,9 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, ViewTransition } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { BookMarked, FileText, Loader2, Plus, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
@@ -20,6 +20,8 @@ type Props = {
   myRole: ProjectRole | null;
   /** Idempotency key for the first "add manuscript" submit. */
   requestId: string;
+  /** Whether invites go out by email, or as a link to send yourself. */
+  emailEnabled: boolean;
 };
 
 const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
@@ -28,24 +30,21 @@ const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
   final: { label: "Final", className: "bg-success/15 text-success" },
 };
 
-export function ProjectOverview({ project, documents, members, invites, myRole, requestId }: Props) {
+export function ProjectOverview({ project, documents, members, invites, myRole, requestId, emailEnabled }: Props) {
   const accent = accentColor(project.accent);
   const [membersOpen, setMembersOpen] = useState(false);
+  const reduce = useReducedMotion();
 
   return (
     <div className="mx-auto max-w-5xl">
-      <motion.header
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="grain relative overflow-hidden rounded-3xl border border-line bg-bg-elev p-8"
-      >
+      <ViewTransition name={`project-${project.id}`} share="morph" default="none">
+      <header className="grain relative overflow-hidden rounded-3xl border border-line bg-bg-elev p-8">
         <motion.div
           aria-hidden
           className="absolute -top-32 -left-20 h-72 w-72 rounded-full blur-3xl"
           style={{ background: accent }}
-          animate={{ opacity: [0.25, 0.4, 0.25], scale: [1, 1.1, 1] }}
-          transition={{ duration: 8, repeat: Infinity }}
+          animate={reduce ? { opacity: 0.3 } : { opacity: [0.25, 0.4, 0.25], scale: [1, 1.1, 1] }}
+          transition={reduce ? undefined : { duration: 8, repeat: Infinity }}
         />
         <div className="relative">
           {project.field && <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">{project.field}</p>}
@@ -81,7 +80,8 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
             </Link>
           </div>
         </div>
-      </motion.header>
+      </header>
+      </ViewTransition>
 
       <section className="mt-10">
         <div className="flex items-center gap-3">
@@ -128,7 +128,7 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
       </section>
       <AnimatePresence>
         {membersOpen && (
-          <MembersPanel projectId={project.id} members={members} invites={invites} myRole={myRole} onClose={() => setMembersOpen(false)} />
+          <MembersPanel projectId={project.id} members={members} invites={invites} myRole={myRole} emailEnabled={emailEnabled} onClose={() => setMembersOpen(false)} />
         )}
       </AnimatePresence>
     </div>

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { z } from "zod";
 import { getUser } from "@/lib/supabase/server";
 import { ProjectOverview } from "@/components/app/project-overview";
+import { isEmailConfigured } from "@/lib/email/resend";
 
 export default async function ProjectPage({ params }: PageProps<"/projects/[projectId]">) {
   const { projectId } = await params;
@@ -36,6 +37,7 @@ export default async function ProjectPage({ params }: PageProps<"/projects/[proj
     <ProjectOverview
       project={project}
       requestId={randomUUID()}
+      emailEnabled={isEmailConfigured()}
       documents={documents ?? []}
       invites={invitesResult.data ?? []}
       myRole={members?.find((m) => m.user_id === user?.id)?.role ?? null}

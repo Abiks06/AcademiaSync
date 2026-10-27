@@ -52,7 +52,8 @@ export function Ledger() {
                         viewport={{ once: true }}
                         transition={{ delay: r * 0.12 + i * 0.08, duration: 1.1, ease: [0.16, 1, 0.3, 1] }}
                         className="flex min-w-0 items-center overflow-hidden rounded-md px-2 text-[11px] font-medium whitespace-nowrap text-bg"
-                        style={{ background: row.color, opacity: 1 - i * 0.22 }}
+                        // Tints toward the ink colour keep labels readable in both themes (no opacity).
+                        style={{ background: `color-mix(in oklab, ${row.color} ${100 - i * 22}%, var(--ink))` }}
                         title={`${role}: ${Math.round((v / total) * 100)}% of ${row.name}'s activity`}
                       >
                         <span className="truncate">{role}</span>

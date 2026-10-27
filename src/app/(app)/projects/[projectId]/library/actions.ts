@@ -74,7 +74,7 @@ function firstIssue(error: z.ZodError) {
 }
 
 function toSource(row: Record<string, unknown>): Source {
-  return { ...(row as unknown as Source), authors: sanitizeAuthors(row.authors) };
+  return { ...(row as unknown as Source), abstract: (row.abstract as string | null | undefined) ?? null, authors: sanitizeAuthors(row.authors) };
 }
 
 export type SourceListResult = { ok: true; sources: Source[] } | { ok: false; error: string };
@@ -83,13 +83,15 @@ export type SourceListResult = { ok: true; sources: Source[] } | { ok: false; er
  * The project's current library, for open editors to catch up with what co-authors have
  * added, changed or deleted. Deleted sources are included so citations of them still render.
  */
-export async function listSources(projectId: string): Promise<SourceListResult> {
+export async function listSources(projectId: string, options: { abstracts?: boolean } = {}): Promise<SourceListResult> {
   if (!uuid.safeParse(projectId).success) return { ok: false, error: "Unknown project." };
   const auth = await actionUser();
   if (!auth.ok) return auth;
+  // The editor only needs what citations and references show; abstracts can be large.
+  const columns = options.abstracts === false ? COLUMNS.replace(" abstract,", "") : COLUMNS;
   const { data, error } = await auth.supabase
     .from("sources")
-    .select(COLUMNS)
+    .select(columns as typeof COLUMNS)
     .eq("project_id", projectId)
     .order("created_at", { ascending: false });
   if (error) return { ok: false, error: dbErrorMessage(error, "load the library") };
@@ -293,7 +295,8 @@ export async function importSources(input: { projectId: string; requestId: strin
   return { ok: true, added, skipped: skipped + rows.length - added.length };
 }
 
-export type UsageResult = { ok: true; citations: number; documents: number } | { ok: false; error: string };
+/** `complete` is false while some manuscript has never been saved by the server, so isn't counted. */
+export type UsageResult = { ok: true; citations: number; documents: number; complete: boolean } | { ok: false; error: string };
 
 /** How often a source is cited across the project's manuscripts, as the server last saw them. */
 export async function sourceUsage(sourceId: string): Promise<UsageResult> {
@@ -302,7 +305,11 @@ export async function sourceUsage(sourceId: string): Promise<UsageResult> {
   if (!auth.ok) return auth;
   const { data, error } = await auth.supabase.from("document_citations").select("citations").eq("source_id", sourceId);
   if (error) return { ok: false, error: dbErrorMessage(error, "check where this source is cited") };
-  return { ok: true, citations: data.reduce((sum, row) => sum + row.citations, 0), documents: data.length };
+  const { data: source } = await auth.supabase.from("sources").select("project_id").eq("id", sourceId).maybeSingle();
+  const { data: complete } = source
+    ? await auth.supabase.rpc("citation_index_complete", { p_project: source.project_id })
+    : { data: false };
+  return { ok: true, citations: data.reduce((sum, row) => sum + row.citations, 0), documents: data.length, complete: complete === true };
 }
 
 export type BibliographyResult = { ok: true; entries: BibliographyEntry[] } | { ok: false; error: string };

@@ -160,6 +160,7 @@ export type Database = {
         Args: Omit<Database["public"]["Functions"]["save_document_state"]["Args"], "p_created_by">;
         Returns: string | null;
       };
+      citation_index_complete: { Args: { p_project: string }; Returns: boolean };
       member_document_state: { Args: { p_document: string }; Returns: { ydoc: string; revision: number }[] };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };

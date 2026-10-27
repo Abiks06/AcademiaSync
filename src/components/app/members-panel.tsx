@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Loader2, LogOut, Mail, UserMinus, Users, X } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, Copy, Link2, Loader2, LogOut, Mail, UserMinus, Users, X } from "lucide-react";
+import { EXIT, SPRING } from "@/components/motion/tokens";
 import { Dialog } from "@/components/ui/dialog";
 import type { ProjectRole } from "@/lib/supabase/types";
 import { changeRole, inviteMember, removeMember, revokeInvite } from "@/app/(app)/projects/[projectId]/members/actions";
@@ -17,6 +19,7 @@ type Props = {
   /** Open invites; only owners and authors can see them. */
   invites: PendingInvite[];
   myRole: ProjectRole | null;
+  emailEnabled: boolean;
   onClose: () => void;
 };
 
@@ -37,7 +40,7 @@ const INVITABLE = ["author", "contributor", "commenter"] as const;
 const NETWORK_ERROR = "Couldn't reach AcademiaSync. Check your connection and try again.";
 
 /** Who is in the project, who is invited, and (for owners) who can do what. */
-export function MembersPanel({ projectId, members, invites, myRole, onClose }: Props) {
+export function MembersPanel({ projectId, members, invites, myRole, emailEnabled, onClose }: Props) {
   const router = useRouter();
   const canInvite = myRole === "owner" || myRole === "author";
   const isOwner = myRole === "owner";
@@ -136,7 +139,14 @@ export function MembersPanel({ projectId, members, invites, myRole, onClose }: P
             disabled={busy !== null || !email.trim()}
             className="flex h-10 items-center justify-center gap-2 rounded-xl bg-ink text-sm font-semibold text-bg disabled:opacity-60"
           >
-            {busy === "invite" ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Mail className="h-4 w-4" aria-hidden />} Send invite
+            {busy === "invite" ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : emailEnabled ? (
+              <Mail className="h-4 w-4" aria-hidden />
+            ) : (
+              <Link2 className="h-4 w-4" aria-hidden />
+            )}
+            {emailEnabled ? "Send invite" : "Create invite link"}
           </button>
         </form>
       )}
@@ -183,27 +193,31 @@ export function MembersPanel({ projectId, members, invites, myRole, onClose }: P
                 )}
               </span>
               {m.isYou ? (
-                <button
-                  onClick={() => void run("leave", async () => {
+                <Confirm
+                  question="Leave this project?"
+                  confirm="Leave"
+                  busy={busy === "leave"}
+                  disabled={busy !== null}
+                  onConfirm={() => void run("leave", async () => {
                     const result = await removeMember({ projectId, userId: m.id });
                     if (result.ok) router.push("/projects");
                     return result;
                   })}
-                  disabled={busy !== null}
-                  className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted hover:bg-danger/10 hover:text-danger"
                 >
                   <LogOut className="h-3.5 w-3.5" /> Leave
-                </button>
+                </Confirm>
               ) : (
                 isOwner && (
-                  <button
-                    onClick={() => void run(`remove-${m.id}`, () => removeMember({ projectId, userId: m.id }), `${m.name} was removed. Their open editors were closed.`)}
+                  <Confirm
+                    question={`Remove ${m.name.split(" ")[0]}?`}
+                    confirm="Remove"
+                    label={`Remove ${m.name}`}
+                    busy={busy === `remove-${m.id}`}
                     disabled={busy !== null}
-                    aria-label={`Remove ${m.name}`}
-                    className="rounded-lg p-1.5 text-muted hover:bg-danger/10 hover:text-danger"
+                    onConfirm={() => void run(`remove-${m.id}`, () => removeMember({ projectId, userId: m.id }), `${m.name} was removed. Their open editors were closed.`)}
                   >
-                    {busy === `remove-${m.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
-                  </button>
+                    <UserMinus className="h-4 w-4" />
+                  </Confirm>
                 )
               )}
             </li>
@@ -225,14 +239,16 @@ export function MembersPanel({ projectId, members, invites, myRole, onClose }: P
                   <button onClick={() => void copy(inviteUrl(i.token))} aria-label={`Copy invite link for ${i.email}`} className="rounded-lg p-1.5 text-muted hover:bg-iris-soft">
                     {copied === inviteUrl(i.token) ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4" />}
                   </button>
-                  <button
-                    onClick={() => void run(`revoke-${i.id}`, () => revokeInvite({ projectId, inviteId: i.id }), `The invite to ${i.email} no longer works.`)}
+                  <Confirm
+                    question="Revoke?"
+                    confirm="Revoke"
+                    label={`Revoke invite for ${i.email}`}
+                    busy={busy === `revoke-${i.id}`}
                     disabled={busy !== null}
-                    aria-label={`Revoke invite for ${i.email}`}
-                    className="rounded-lg p-1.5 text-muted hover:bg-danger/10 hover:text-danger"
+                    onConfirm={() => void run(`revoke-${i.id}`, () => revokeInvite({ projectId, inviteId: i.id }), `The invite to ${i.email} no longer works.`)}
                   >
                     <X className="h-4 w-4" />
-                  </button>
+                  </Confirm>
                 </li>
               ))}
             </ul>
@@ -240,5 +256,59 @@ export function MembersPanel({ projectId, members, invites, myRole, onClose }: P
         )}
       </div>
     </Dialog>
+  );
+}
+
+/** A destructive button that asks once, inline, before it acts. */
+function Confirm({ question, confirm, label, busy, disabled, onConfirm, children }: {
+  question: string;
+  confirm: string;
+  label?: string;
+  busy: boolean;
+  disabled: boolean;
+  onConfirm: () => void;
+  children: React.ReactNode;
+}) {
+  const [asking, setAsking] = useState(false);
+  return (
+    <AnimatePresence mode="popLayout" initial={false}>
+      {asking || busy ? (
+        <motion.span
+          key="ask"
+          initial={{ opacity: 0, x: 8 }}
+          animate={{ opacity: 1, x: 0, transition: SPRING.snappy }}
+          exit={{ opacity: 0, x: 8, transition: EXIT }}
+          className="flex shrink-0 items-center gap-1.5 text-xs"
+        >
+          <span className="text-muted">{question}</span>
+          <button type="button" onClick={() => setAsking(false)} disabled={busy} className="rounded-lg px-2 py-1 text-muted hover:bg-iris-soft">
+            Cancel
+          </button>
+          <button
+            type="button"
+            autoFocus
+            onClick={onConfirm}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-lg bg-danger px-2 py-1 font-semibold text-bg disabled:opacity-70"
+          >
+            {busy && <Loader2 className="h-3 w-3 animate-spin" />} {confirm}
+          </button>
+        </motion.span>
+      ) : (
+        <motion.button
+          key="ask-button"
+          type="button"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: EXIT }}
+          onClick={() => setAsking(true)}
+          disabled={disabled}
+          aria-label={label}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg p-1.5 text-xs text-muted hover:bg-danger/10 hover:text-danger"
+        >
+          {children}
+        </motion.button>
+      )}
+    </AnimatePresence>
   );
 }

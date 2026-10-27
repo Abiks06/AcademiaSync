@@ -16,13 +16,13 @@ const STEPS = [
   },
   {
     stage: "Review",
-    title: "Run proper review rounds",
+    title: "Bring in your co-authors",
     body: "Invite co-authors and advisors as authors, contributors or commenters, and resolve every comment in the margin.",
   },
   {
     stage: "Submit",
     title: "Export a clean manuscript",
-    body: "Word, Markdown or PDF, with citations and references in the style your journal asks for.",
+    body: "Word or Markdown, or print to PDF, with citations and references in the style your journal asks for.",
   },
 ];
 

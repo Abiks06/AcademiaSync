@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, ChevronLeft, Download, History, Lock, Quote, WifiOff } from "lucide-react";
+import { BookMarked, ChevronLeft, Download, FileCode2, FileText, History, Lock, MoreHorizontal, PauseCircle, Printer, Quote, RefreshCw, WifiOff } from "lucide-react";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
@@ -19,6 +19,7 @@ import {
   useRoom,
   useStatus,
   useThreads,
+  useUpdateMyPresence,
 } from "@liveblocks/react/suspense";
 import { getYjsProviderForRoom } from "@liveblocks/yjs";
 import { AnchoredThreads, FloatingComposer, FloatingThreads, FloatingToolbar, Toolbar, useLiveblocksExtension } from "@liveblocks/react-tiptap";
@@ -28,6 +29,9 @@ import { Placeholder } from "@tiptap/extensions";
 import type { Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "y-prosemirror";
 import { roomIdFor } from "@/lib/liveblocks/rooms";
+import { DURATION, EXIT, SPRING } from "@/components/motion/tokens";
+import { Menu } from "@/components/ui/menu";
+import { useToast } from "@/components/ui/toast";
 import type { DocumentStatus } from "@/lib/supabase/types";
 import { accentColor } from "@/components/app/accent";
 import {
@@ -44,7 +48,9 @@ import { useRequestKey } from "@/lib/use-request-key";
 import { SCHEMA_VERSION, canOpen, claimSchema, documentMeta, readStyle, writeStyle } from "@/lib/editor/schema-version";
 import { listSources } from "@/app/(app)/projects/[projectId]/library/actions";
 import { SourceDialog } from "@/components/library/source-dialog";
-import { Citation } from "./citation";
+import { SlashBridge, SlashCommands, type SlashState } from "@/lib/editor/slash-commands";
+import { SlashMenu } from "./slash-menu";
+import { Citation, quietCitationsForAMoment } from "./citation";
 import { CitationPicker } from "./citation-picker";
 import { ReferencesPanel } from "./references-panel";
 import { ReferencesSection } from "./references-section";
@@ -71,9 +77,10 @@ export function DocumentWorkspace(props: WorkspaceProps) {
   if (!props.liveReady) {
     return (
       <Notice
-        title="Live editing isn't switched on yet"
-        body="This server has no Liveblocks key. Add LIVEBLOCKS_SECRET_KEY to the environment and restart, and this page becomes a live editor."
+        title="Live editing is unavailable right now"
+        body="The manuscript can't be opened for editing on this server at the moment. Nothing is lost; try again a little later."
         project={props.project}
+        icon="paused"
       />
     );
   }
@@ -132,7 +139,7 @@ function Shell({ signedOut, noAccess, ...props }: WorkspaceProps & { signedOut: 
 
   // Removed from the project: the editor goes, since nothing typed here could be saved.
   if (noAccess) {
-    return <Notice title="You no longer have access" body="You were removed from this project, or it was deleted. Ask an owner if you think this is a mistake." project={props.project} />;
+    return <Notice title="You no longer have access" body="You were removed from this project, or it was deleted. Ask an owner if you think this is a mistake." project={props.project} icon="lock" />;
   }
   // Never swap out an editor that's already open: unsynced text lives in it.
   if (signedOut && opened) {
@@ -152,7 +159,7 @@ function Shell({ signedOut, noAccess, ...props }: WorkspaceProps & { signedOut: 
     );
   }
   if (signedOut) {
-    return <Notice title="Your sign-in has ended" body="Sign in again to open this manuscript." project={props.project} signIn />;
+    return <Notice title="Your sign-in has ended" body="Sign in again to open this manuscript." project={props.project} signIn icon="lock" />;
   }
   if (connectionError && !opened) {
     return <Notice title="Couldn't open this manuscript" body={connectionError} project={props.project} reload />;
@@ -209,6 +216,7 @@ function SchemaGate(props: WorkspaceProps & { onOpened: () => void }) {
         body="Someone opened this manuscript with a newer version. Reload this page to keep working; nothing you wrote is lost."
         project={props.project}
         reload
+        icon="update"
       />
     );
   }
@@ -220,6 +228,8 @@ type PickerState = { mode: "closed" } | { mode: "pick"; initial?: { items: Citat
 function Workspace({ document, project, canEdit, sources: initialSources, onOpened }: WorkspaceProps & { onOpened: () => void }) {
   const accent = accentColor(project.accent);
   const room = useRoom();
+  const updatePresence = useUpdateMyPresence();
+  const lastTyped = useRef(0);
   // Mentions are off: their nodes aren't in the manuscript schema, so versions holding them
   // couldn't be restored. Offline support keeps unsynced edits in the browser (IndexedDB).
   const liveblocks = useLiveblocksExtension({ field: "manuscript", mentions: false, offlineSupport_experimental: true });
@@ -232,6 +242,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const [checking, setChecking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   useEffect(onOpened, [onOpened]);
+  // Runs once, before the citations already in the text mount.
+  useState(quietCitationsForAMoment);
 
   // The citation style is shared live: when one author switches it, every citation changes for everyone.
   const doc = useMemo(() => getYjsProviderForRoom(room).getYDoc(), [room]);
@@ -278,6 +290,10 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   );
 
   const openPicker = useRef<() => void>(() => {});
+  const [slash, setSlash] = useState<SlashState>(null);
+  // The "/" menu's plugin lives outside React; this plain object is how the two talk.
+  const [slashBridge] = useState(() => new SlashBridge());
+  const bindSlashKeys = useCallback((handler: (e: KeyboardEvent) => boolean) => slashBridge.setKeyHandler(handler), [slashBridge]);
   const canCiteRef = useRef(canCite);
   useEffect(() => {
     canCiteRef.current = canCite;
@@ -291,7 +307,12 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       Citation,
       // The collaboration layer keeps its own history, so the built-in one must be off.
       StarterKit.configure({ undoRedo: false }),
-      Placeholder.configure({ placeholder: "Start writing. Everyone in this project sees changes as you type." }),
+      Placeholder.configure({ placeholder: "Start writing, or type / for headings, lists and more. Everyone in this project sees changes as you type." }),
+      SlashCommands.configure({
+        extra: () => slashBridge.extra(),
+        onChange: setSlash,
+        onKeyDown: (event) => slashBridge.keys(event),
+      }),
     ],
     editorProps: {
       attributes: { class: "manuscript-prose", "aria-label": "Manuscript text", spellcheck: "true" },
@@ -323,7 +344,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   }, [editor]);
   useEffect(() => {
     openPicker.current = startCiting;
-  }, [startCiting]);
+    slashBridge.setCite(canCite, startCiting);
+  }, [startCiting, slashBridge, canCite]);
 
   // Count words, and after a pause ask the server to copy the live text into Supabase (and
   // take an automatic version when one is due), in case the webhook is off or behind.
@@ -344,6 +366,12 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       // Only this person's own typing asks the server to save; a collaborator's change
       // reaches the server through their own editor.
       if (!canEdit || transaction.getMeta(ySyncPluginKey)) return;
+      // Let collaborators see who is typing, at most once a second.
+      const now = Date.now();
+      if (transaction.docChanged && now - lastTyped.current > 1000) {
+        lastTyped.current = now;
+        updatePresence({ typingAt: now });
+      }
       clearTimeout(idle.current);
       idle.current = setTimeout(async () => {
         try {
@@ -359,7 +387,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       editor.off("update", onUpdate);
       clearTimeout(idle.current);
     };
-  }, [editor, canEdit, document.id]);
+  }, [editor, canEdit, document.id, updatePresence]);
 
   const insert = useCallback(
     (items: CitationItem[], mode: CitationMode, extra?: Source) => {
@@ -385,7 +413,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const asked = useRef(new Set<string>());
   const refreshSources = useCallback(async () => {
     try {
-      const result = await listSources(project.id);
+      const result = await listSources(project.id, { abstracts: false });
       if (result.ok) setSources(result.sources);
     } catch {
       // Offline; the next change or focus tries again.
@@ -424,31 +452,17 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   return (
     <SourcesContext.Provider value={sourcesValue}>
     <div className="mx-auto max-w-[78rem]">
-      <motion.header
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-        className="mb-6"
-      >
-        <Link
-          href={`/projects/${project.id}`}
-          className="inline-flex items-center gap-1 text-sm text-muted transition-colors hover:text-ink"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span className="h-2 w-2 rounded-full" style={{ background: accent }} />
-          {project.name}
-        </Link>
-
-        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-3">
-          <TitleField documentId={document.id} initial={document.title} canEdit={canEdit} />
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <PresenceStack />
-            <SyncStatus />
+      <EditorBar
+        project={project}
+        accent={accent}
+        title={document.title}
+        actions={
+          <>
             {canEdit && (
               <button
                 onClick={startCiting}
                 disabled={!canCite}
-                title={canCite ? "Cite a source (Ctrl/Cmd+Shift+K, or type [@)" : "Someone has this manuscript open in an older version. Citing resumes when they reload."}
+                title={canCite ? "Cite a source (Ctrl/Cmd+Shift+K, or type [@ or /cite)" : "Someone has this manuscript open in an older version. Citing resumes when they reload."}
                 className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong disabled:opacity-50"
               >
                 <Quote className="h-4 w-4 text-iris" /> Cite
@@ -456,21 +470,31 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             )}
             <button
               onClick={() => setReferencesOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+              className="hidden h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong md:inline-flex"
             >
               <BookMarked className="h-4 w-4 text-iris" /> References
-              {cited.ids.length > 0 && <span className="font-mono text-xs text-faint">{cited.ids.length}</span>}
+              <RollingCount value={cited.ids.length} />
             </button>
-            <ExportMenu documentId={document.id} />
+            <ExportMenu documentId={document.id} title={document.title} className="hidden md:block" />
             <button
               onClick={() => setVersionsOpen(true)}
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+              className="hidden h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong md:inline-flex"
             >
               <History className="h-4 w-4 text-iris" /> History
             </button>
-          </div>
-        </div>
+            <MoreMenu
+              documentId={document.id}
+              title={document.title}
+              onReferences={() => setReferencesOpen(true)}
+              onHistory={() => setVersionsOpen(true)}
+              className="md:hidden"
+            />
+          </>
+        }
+      />
 
+      <header className="mt-6 mb-6">
+        <TitleField documentId={document.id} initial={document.title} canEdit={canEdit} />
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-faint">
           <StatusSelect documentId={document.id} initial={document.status} canEdit={canEdit} />
           <StyleSelect style={style} canEdit={canEdit} onChange={(next) => writeStyle(doc, next)} />
@@ -485,15 +509,16 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
           {saveError && <span role="alert" className="text-danger">History: {saveError}</span>}
           <span className="ml-auto font-mono">{words.toLocaleString()} {words === 1 ? "word" : "words"}</span>
         </div>
-      </motion.header>
+      </header>
 
       <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.7, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: DURATION.base }}
         className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
       >
-        <div className="print-area glass relative min-h-[70dvh] rounded-2xl px-6 py-10 sm:px-14 sm:py-14">
+        {/* Writing happens on solid paper, not glass. */}
+        <div className="print-area relative min-h-[70dvh] rounded-2xl border border-line bg-panel-solid px-6 py-10 shadow-[0_30px_80px_-40px_rgb(0_0_0/0.55)] sm:px-14 sm:py-14">
           <div className="mx-auto max-w-[46rem]">
             <h1 className="mb-8 hidden font-serif text-3xl print:block">{document.title}</h1>
             <EditorContent editor={editor} />
@@ -505,6 +530,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
               </FloatingToolbar>
             )}
             {editor && <FloatingComposer editor={editor} style={{ width: 320 }} />}
+            {canEdit && <SlashMenu state={slash} bindKeys={bindSlashKeys} />}
             <ReferencesSection bib={bib} style={style} />
           </div>
         </div>
@@ -547,20 +573,148 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   );
 }
 
+/** Downloads an export without leaving the editor; a failure is a toast, never a raw error page. */
+function useExport(documentId: string, title: string) {
+  const toast = useToast();
+  return async (format: "docx" | "md") => {
+    try {
+      const res = await fetch(`/api/documents/${documentId}/export?format=${format}`);
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
+        toast({ tone: "error", title: "Export didn't work", description: error ?? "Try again in a moment." });
+        return;
+      }
+      const blob = await res.blob();
+      const named = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
+      const link = window.document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = named ? decodeURIComponent(named) : `${title || "manuscript"}.${format}`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
+      toast({ tone: "success", title: format === "docx" ? "Word file downloaded" : "Markdown downloaded" });
+    } catch {
+      toast({ tone: "error", title: "Couldn't reach AcademiaSync", description: "Check your connection and try again." });
+    }
+  };
+}
+
 /** Word and Markdown come from the server with citations and references in the document's style. */
-function ExportMenu({ documentId }: { documentId: string }) {
-  const href = (format: string) => `/api/documents/${documentId}/export?format=${format}`;
+function ExportMenu({ documentId, title, className }: { documentId: string; title: string; className?: string }) {
+  const download = useExport(documentId, title);
   return (
-    <details className="group relative">
-      <summary className="inline-flex h-9 cursor-pointer list-none items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong [&::-webkit-details-marker]:hidden">
-        <Download className="h-4 w-4 text-iris" aria-hidden /> Export
-      </summary>
-      <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-line bg-bg-elev p-1 text-sm shadow-xl">
-        <a href={href("docx")} className="block rounded-lg px-3 py-2 hover:bg-iris-soft">Word (.docx)</a>
-        <a href={href("md")} className="block rounded-lg px-3 py-2 hover:bg-iris-soft">Markdown, for Pandoc or Overleaf</a>
-        <button onClick={() => window.print()} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-iris-soft">Print or save as PDF</button>
+    <Menu
+      label="Export"
+      className={className}
+      trigger={<><Download className="h-4 w-4 text-iris" aria-hidden /> Export</>}
+      items={[
+        { label: "Word (.docx)", hint: "With citations and references", icon: <FileText className="h-4 w-4" />, onSelect: () => download("docx") },
+        { label: "Markdown", hint: "For Pandoc or Overleaf", icon: <FileCode2 className="h-4 w-4" />, onSelect: () => download("md") },
+        { label: "Print to PDF", hint: "Uses your browser's print dialog", icon: <Printer className="h-4 w-4" />, onSelect: () => window.print() },
+      ]}
+    />
+  );
+}
+
+/** On phones, everything but Cite folds into one menu so the bar stays on one row. */
+function MoreMenu({ documentId, title, onReferences, onHistory, className }: {
+  documentId: string;
+  title: string;
+  onReferences: () => void;
+  onHistory: () => void;
+  className?: string;
+}) {
+  const download = useExport(documentId, title);
+  return (
+    <Menu
+      label="More actions"
+      className={className}
+      trigger={<MoreHorizontal className="h-4 w-4" aria-hidden />}
+      items={[
+        { label: "References", icon: <BookMarked className="h-4 w-4" />, onSelect: onReferences },
+        { label: "History", icon: <History className="h-4 w-4" />, onSelect: onHistory },
+        { label: "Export to Word", icon: <FileText className="h-4 w-4" />, onSelect: () => download("docx") },
+        { label: "Export to Markdown", icon: <FileCode2 className="h-4 w-4" />, onSelect: () => download("md") },
+        { label: "Print to PDF", icon: <Printer className="h-4 w-4" />, onSelect: () => window.print() },
+      ]}
+    />
+  );
+}
+
+/** A count whose digits roll when it changes, e.g. how many sources the manuscript cites. */
+function RollingCount({ value }: { value: number }) {
+  if (value === 0) return null;
+  return (
+    <span className="relative inline-flex h-4 overflow-hidden font-mono text-xs text-faint" aria-label={`${value} cited`}>
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={value}
+          initial={{ y: "100%", opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: "-100%", opacity: 0 }}
+          transition={SPRING.snappy}
+        >
+          {value}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
+
+/**
+ * The bar above the manuscript. It sticks while you write and, once the big title has
+ * scrolled away, condenses and shows the title itself, so the tools and the save state
+ * never scroll out of reach.
+ */
+function EditorBar({ project, accent, title, actions }: { project: { id: string; name: string }; accent: string; title: string; actions: React.ReactNode }) {
+  const [condensed, setCondensed] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setCondensed(window.scrollY > 120);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  return (
+    <motion.div
+      layout
+      transition={SPRING.gentle}
+      className={`sticky top-[3.75rem] z-30 -mx-2 flex items-center gap-3 rounded-2xl border px-2 transition-[background-color,border-color,box-shadow] duration-300 lg:top-3 ${
+        condensed
+          ? "border-line bg-bg-elev/85 py-1.5 shadow-[0_18px_40px_-24px_rgb(0_0_0/0.6)] backdrop-blur-xl"
+          : "border-transparent bg-transparent py-1"
+      }`}
+    >
+      <Link
+        href={`/projects/${project.id}`}
+        className="inline-flex min-w-0 shrink items-center gap-1.5 rounded-full px-2 py-1.5 text-sm text-muted transition-colors hover:text-ink"
+      >
+        <ChevronLeft className="h-4 w-4 shrink-0" />
+        <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: accent }} />
+        <span className={`truncate ${condensed ? "hidden sm:inline" : ""}`}>{project.name}</span>
+      </Link>
+      <AnimatePresence initial={false}>
+        {condensed && (
+          <motion.span
+            key="title"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 6, transition: EXIT }}
+            transition={SPRING.snappy}
+            className="hidden min-w-0 truncate font-serif text-lg font-medium sm:block"
+          >
+            <span className="mr-2 text-faint">/</span>
+            {title}
+          </motion.span>
+        )}
+      </AnimatePresence>
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="hidden sm:block">
+          <PresenceStack compact={condensed} />
+        </div>
+        <SyncStatus compact={condensed} />
+        {actions}
       </div>
-    </details>
+    </motion.div>
   );
 }
 
@@ -687,13 +841,29 @@ function StatusSelect({ documentId, initial, canEdit }: { documentId: string; in
   );
 }
 
-type NoticeProps = { title: string; body: string; project: { id: string; name: string }; reload?: boolean; signIn?: boolean };
+type NoticeProps = {
+  title: string;
+  body: string;
+  project: { id: string; name: string };
+  reload?: boolean;
+  signIn?: boolean;
+  icon?: "offline" | "lock" | "update" | "paused";
+};
 
-function Notice({ title, body, project, reload, signIn }: NoticeProps) {
+const NOTICE_ICONS = { offline: WifiOff, lock: Lock, update: RefreshCw, paused: PauseCircle } as const;
+
+function Notice({ title, body, project, reload, signIn, icon = "offline" }: NoticeProps) {
+  const Icon = NOTICE_ICONS[icon];
   return (
-    <div role="alert" className="mx-auto max-w-md py-24 text-center">
+    <motion.div
+      role="alert"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={SPRING.smooth}
+      className="mx-auto max-w-md py-24 text-center"
+    >
       <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-iris-soft text-iris">
-        <WifiOff className="h-5 w-5" />
+        <Icon className="h-5 w-5" />
       </span>
       <h1 className="mt-5 font-serif text-3xl">{title}</h1>
       <p className="mt-3 text-muted">{body}</p>
@@ -715,16 +885,25 @@ function Notice({ title, body, project, reload, signIn }: NoticeProps) {
           Back to {project.name}
         </Link>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
+/** The same shape as the open editor, so nothing jumps when the manuscript arrives. */
 function EditorSkeleton() {
   return (
     <div className="mx-auto max-w-[78rem]" aria-busy="true" aria-label="Opening manuscript">
-      <div className="shimmer h-5 w-40 rounded-lg bg-line" />
-      <div className="shimmer mt-4 h-11 w-2/3 rounded-xl bg-line" />
-      <div className="glass mt-10 min-h-[60dvh] rounded-2xl p-14">
+      <div className="flex h-11 items-center gap-3">
+        <div className="shimmer h-5 w-40 rounded-lg bg-line" />
+        <div className="ml-auto flex gap-2">
+          {[96, 72, 92].map((w, i) => (
+            <div key={i} className="shimmer h-9 rounded-full bg-line/70" style={{ width: w }} />
+          ))}
+        </div>
+      </div>
+      <div className="shimmer mt-6 h-11 w-2/3 rounded-xl bg-line" />
+      <div className="shimmer mt-4 h-4 w-48 rounded-full bg-line/60" />
+      <div className="mt-6 min-h-[70dvh] rounded-2xl border border-line bg-panel-solid p-14">
         {[92, 100, 78, 96, 60].map((w, i) => (
           <div key={i} className="shimmer mb-4 h-3.5 rounded-full bg-line/70" style={{ width: `${w}%` }} />
         ))}

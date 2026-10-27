@@ -14,7 +14,7 @@
   --line-strong: rgb(148 160 255 / 0.24);
   --ink: #eef0ff;
   --muted: #9aa0c3;
-  --faint: #636a91;
+  --faint: #7a81a8;
   --iris: #8b95ff;
   --iris-strong: #6d78ff;
   --iris-soft: rgb(139 149 255 / 0.14);
@@ -36,15 +36,15 @@
     --line-strong: rgb(40 48 110 / 0.2);
     --ink: #11152e;
     --muted: #535a7d;
-    --faint: #8c92b0;
+    --faint: #6b7194;
     --iris: #4d58e8;
     --iris-strong: #3a44d1;
     --iris-soft: rgb(77 88 232 / 0.1);
-    --teal: #0f9c88;
-    --amber: #b7741a;
+    --teal: #0b7a6b;
+    --amber: #8f5a10;
     --rose: #c43f69;
-    --danger: #d23b3b;
-    --success: #13995a;
+    --danger: #c02f2f;
+    --success: #0e7a47;
     color-scheme: light;
   }
 }
@@ -75,34 +75,51 @@
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-html {
-  background: var(--bg);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
+/* Base styles sit in Tailwind's base layer, so utilities (rounded-full, ring-*) win. */
+@layer base {
+  html {
+    background: var(--bg);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    overflow-x: clip;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+  }
+
+  ::selection {
+    background: var(--iris-soft);
+    color: var(--ink);
+  }
+
+  /* Outlines follow each element's own radius, so pills stay pills when focused. */
+  :focus-visible {
+    outline: 2px solid var(--iris);
+    outline-offset: 2px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
 }
 
-body {
-  overflow-x: clip;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: var(--font-sans);
+/* A project card morphing into its page's header (React <ViewTransition share="morph">). */
+::view-transition-group(.morph) {
+  animation-duration: 420ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
-
-::selection {
-  background: var(--iris-soft);
-  color: var(--ink);
+::view-transition-image-pair(.morph) {
+  animation-name: via-blur;
 }
-
-:focus-visible {
-  outline: 2px solid var(--iris);
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-
-h1,
-h2,
-h3 {
-  text-wrap: balance;
+@keyframes via-blur {
+  30% {
+    filter: blur(3px);
+  }
 }
 
 /* Fine grain over gradients so large glows don't band. */
@@ -136,6 +153,59 @@ h3 {
     linear-gradient(90deg, var(--line) 1px, transparent 1px);
   background-size: 56px 56px;
   mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, black 30%, transparent 75%);
+}
+
+/*
+ * Entrance animations that need no JavaScript: the page is painted complete, and these only
+ * add the rise. Without JS, or with reduced motion, everything is simply there.
+ * Stagger with style="--i: n" (in steps of 35 ms) or --delay.
+ */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(0.35em);
+    filter: blur(8px);
+  }
+}
+@keyframes rise-far {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rise {
+    animation: rise 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--delay, 0ms) + var(--i, 0) * 35ms);
+  }
+  .rise-far {
+    animation: rise-far 700ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--delay, 0ms);
+  }
+}
+
+/* Scroll reveals start hidden only once JavaScript is running to reveal them. */
+html:not(.js) [data-reveal],
+html:not(.js) [data-reveal] * {
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+/* A gradient across a whole phrase, carried onto each wrapped line. */
+.text-gradient-phrase {
+  background: linear-gradient(100deg, var(--ink) 0%, var(--iris) 45%, var(--teal) 95%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+@keyframes toast-progress {
+  to {
+    transform: scaleX(0);
+  }
 }
 
 @keyframes caret-blink {
@@ -191,6 +261,15 @@ h3 {
   padding: 0 0.15em;
   cursor: default;
   transition: background-color 0.15s;
+}
+@keyframes cite-pop {
+  0% { opacity: 0; transform: scale(0.6); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.manuscript-prose .citation-pop {
+  display: inline-block;
+  animation: cite-pop 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .manuscript-prose .citation:hover,
 .manuscript-prose .citation.is-selected { background: var(--iris-soft); }

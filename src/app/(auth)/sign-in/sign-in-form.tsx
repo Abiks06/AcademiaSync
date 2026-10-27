@@ -53,7 +53,7 @@ export function SignInForm({ next, initialError }: { next: string; initialError?
           exit={{ opacity: 0, y: -20, filter: "blur(6px)" }}
           transition={{ duration: 0.6, ease: EASE_OUT_EXPO }}
         >
-          <h1 className="font-serif text-4xl font-medium tracking-tight">Welcome back to the draft</h1>
+          <h1 className="font-serif text-4xl font-medium tracking-tight">Sign in to your workspace</h1>
           <p className="mt-3 text-muted">Sign in or create an account. Any university or personal email works.</p>
 
           <form action={signInWithProvider} className="mt-8 grid gap-3">

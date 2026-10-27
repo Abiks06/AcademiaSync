@@ -12,6 +12,7 @@ import { listSources, setSourceDeleted, sourceUsage } from "@/app/(app)/projects
 import { useLibrarySync } from "@/lib/library/use-library-sync";
 import { useRequestKey } from "@/lib/use-request-key";
 import { downloadText, fileSlug } from "@/lib/download";
+import { useToast } from "@/components/ui/toast";
 import { SourceDialog } from "./source-dialog";
 import { ImportDialog } from "./import-dialog";
 
@@ -42,7 +43,9 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
       if (!result.ok) return;
       const text =
         result.citations === 0
-          ? "Not cited in any manuscript."
+          ? result.complete
+            ? "Not cited in any manuscript."
+            : "No citations found yet. Manuscripts nobody has opened recently aren't counted."
           : `Cited ${result.citations} ${result.citations === 1 ? "time" : "times"} in ${result.documents} ${result.documents === 1 ? "manuscript" : "manuscripts"}; those citations will show a warning.`;
       setUsage({ id, text });
     } catch {
@@ -50,7 +53,7 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
     }
   };
   const [busy, setBusy] = useState<string | null>(null);
-  const [undo, setUndo] = useState<Source | null>(null);
+  const toast = useToast();
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [requestKey, renewRequestKey] = useRequestKey();
@@ -90,7 +93,15 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
       if (!result.ok) return setError(result.error);
       setAll((list) => list.map((s) => (s.id === source.id ? { ...s, deleted_at: result.deletedAt } : s)));
       setConfirming(null);
-      setUndo(deleted ? source : null);
+      if (deleted) {
+        toast({
+          title: `Deleted “${source.title.length > 60 ? `${source.title.slice(0, 57)}…` : source.title}”`,
+          description: "Citations of it now show a warning.",
+          action: { label: "Undo", onClick: () => void setDeleted(source, false) },
+        });
+      } else {
+        toast({ tone: "success", title: "Source restored" });
+      }
     } catch {
       setError("Couldn't reach AcademiaSync. Check your connection and try again.");
     } finally {
@@ -102,6 +113,7 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
     try {
       await navigator.clipboard.writeText(formatReference(s));
       setCopied(s.id);
+      toast({ tone: "success", title: "Reference copied" });
       setTimeout(() => setCopied((c) => (c === s.id ? null : c)), 1800);
     } catch {
       setError("Your browser blocked copying. Select the reference text and copy it by hand.");
@@ -168,24 +180,6 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
       )}
 
       {error && <p role="alert" className="mt-4 text-sm text-danger">{error}</p>}
-      <AnimatePresence>
-        {undo && (
-          <motion.p
-            role="status"
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-line bg-bg-elev px-4 py-2.5 text-sm"
-          >
-            <span className="min-w-0 flex-1 truncate">Deleted “{undo.title}”. Citations of it now show a warning.</span>
-            <button onClick={() => void setDeleted(undo, false)} disabled={busy !== null} className="font-semibold text-iris hover:underline">
-              Undo
-            </button>
-            <button onClick={() => setUndo(null)} aria-label="Dismiss" className="text-muted hover:text-ink">×</button>
-          </motion.p>
-        )}
-      </AnimatePresence>
-
       <ul className="mt-6 flex flex-col gap-3">
         <AnimatePresence initial={false}>
           {shown.map((s, i) => {

@@ -6,6 +6,8 @@ import { useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { FolderKanban, LogOut, Menu, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { Dialog } from "@/components/ui/dialog";
+import { SPRING } from "@/components/motion/tokens";
 import { accentColor, initials } from "./accent";
 
 type ShellProps = {
@@ -19,27 +21,20 @@ export function AppShell({ user, projects, children }: ShellProps) {
 
   return (
     <div className="flex min-h-dvh">
+      <a
+        href="#main"
+        className="sr-only z-[70] rounded-full bg-ink px-4 py-2 text-sm font-semibold text-bg focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+      >
+        Skip to content
+      </a>
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 border-r border-line bg-bg-elev/50 lg:block">
         <SidebarContent user={user} projects={projects} />
       </aside>
 
       <AnimatePresence>
         {open && (
-          <>
-            <motion.div
-              className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setOpen(false)}
-            />
-            <motion.aside
-              className="fixed inset-y-0 left-0 z-50 w-72 border-r border-line bg-bg-elev lg:hidden"
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "spring", stiffness: 320, damping: 34 }}
-            >
+          <Dialog onClose={() => setOpen(false)} label="Menu" variant="drawer" className="h-dvh w-72 border-r border-line bg-bg-elev lg:hidden">
+            <div id="mobile-menu" className="h-full">
               <button
                 aria-label="Close menu"
                 onClick={() => setOpen(false)}
@@ -48,20 +43,20 @@ export function AppShell({ user, projects, children }: ShellProps) {
                 <X className="h-4 w-4" />
               </button>
               <SidebarContent user={user} projects={projects} onNavigate={() => setOpen(false)} />
-            </motion.aside>
-          </>
+            </div>
+          </Dialog>
         )}
       </AnimatePresence>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-bg/80 px-4 py-3 backdrop-blur-lg lg:hidden">
-          <button aria-label="Open menu" onClick={() => setOpen(true)} className="rounded-lg p-1.5 hover:bg-iris-soft">
+          <button aria-label="Open menu" aria-expanded={open} aria-controls="mobile-menu" onClick={() => setOpen(true)} className="rounded-lg p-1.5 hover:bg-iris-soft">
             <Menu className="h-5 w-5" />
           </button>
           <Logo className="h-6 w-6" />
           <span className="font-semibold">AcademiaSync</span>
         </header>
-        <main className="flex-1 px-4 py-8 sm:px-8 lg:px-12">{children}</main>
+        <main id="main" tabIndex={-1} className="flex-1 px-4 py-8 outline-none sm:px-8 lg:px-12">{children}</main>
       </div>
     </div>
   );
@@ -136,13 +131,14 @@ function NavItem({
     <Link
       href={href}
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors ${active ? "text-ink" : "text-muted hover:text-ink"}`}
     >
       {active && (
         <motion.span
           layoutId="nav-active"
           className="absolute inset-0 rounded-lg border border-line bg-iris-soft"
-          transition={{ type: "spring", stiffness: 420, damping: 34 }}
+          transition={SPRING.snappy}
         />
       )}
       <span className="relative flex min-w-0 items-center gap-2.5">{children}</span>
