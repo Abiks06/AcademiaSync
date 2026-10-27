@@ -18,7 +18,7 @@ export function detectIdentifier(input: string): Identifier | null {
   const arxiv = text.replace(/^(?:https?:\/\/)?(?:www\.)?arxiv\.org\/(?:abs|pdf)\//i, "").replace(/^arxiv:\s*/i, "").replace(/\.pdf$/i, "");
   const a = arxiv.match(ARXIV_NEW) ?? arxiv.match(ARXIV_OLD);
   if (a) return { kind: "arxiv", id: a[1] };
-  const pmid = text.replace(/^(?:https?:\/\/)?pubmed\.ncbi\.nlm\.nih\.gov\//i, "").replace(/^pmid:\s*/i, "").replace(/\/$/, "");
+  const pmid = text.replace(/^(?:https?:\/\/)?pubmed\.ncbi\.nlm\.nih\.gov\//i, "").replace(/^pmid:?\s*/i, "").replace(/\/$/, "");
   if (/^\d{1,9}$/.test(pmid)) return { kind: "pubmed", id: pmid };
   return null;
 }

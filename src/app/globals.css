@@ -304,6 +304,10 @@ html:not(.js) [data-reveal] * {
   --lb-foreground: var(--ink);
 }
 
+/* Liveblocks' free-plan badge sits in the bottom-right corner over everything; bars
+   pinned to the bottom of a panel leave room for it while it's on the page. */
+body:has(#liveblocks-badge:not([style*="display: none"])) .clear-badge { padding-bottom: 4rem; }
+
 /* Reference lists formatted by CSL. */
 .csl-bibliography .csl-left-margin { display: inline-block; min-width: 2rem; }
 .csl-bibliography .csl-right-inline { display: inline; }

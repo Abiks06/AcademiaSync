@@ -62,21 +62,24 @@ export function SourceDialog({ projectId, editing, requestId, onClose, onSaved }
   const [lookupState, setLookupState] = useState<"idle" | "busy">("idle");
   const [filled, setFilled] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // Shown next to the lookup box, since the form's own message sits below the fold.
+  const [lookupError, setLookupError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const set = <K extends keyof FormValues>(key: K, value: FormValues[K]) => setValues((v) => ({ ...v, [key]: value }));
 
   const fetchDetails = async () => {
-    if (!lookupDoi.trim()) return setMessage("Paste a DOI, arXiv id or PubMed id first.");
+    setFilled(false);
+    if (!lookupDoi.trim()) return setLookupError("Paste a DOI, arXiv id or PubMed id first.");
     setLookupState("busy");
-    setMessage(null);
+    setLookupError(null);
     try {
       const result = await lookupSource(lookupDoi);
-      if (!result.ok) return setMessage(result.error);
+      if (!result.ok) return setLookupError(result.error);
       setValues(toForm(result.source));
       setFilled(true);
     } catch {
-      setMessage(NETWORK_ERROR);
+      setLookupError(NETWORK_ERROR);
     } finally {
       setLookupState("idle");
     }
@@ -161,6 +164,7 @@ export function SourceDialog({ projectId, editing, requestId, onClose, onSaved }
                 </button>
               </div>
               {filled && <p role="status" className="mt-2 text-xs text-success">Filled in. Check it over, then save.</p>}
+              {lookupError && <p role="alert" className="mt-2 text-xs text-danger">{lookupError}</p>}
             </div>
           )}
 

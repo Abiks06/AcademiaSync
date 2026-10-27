@@ -93,14 +93,14 @@ export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documen
             <p className="mb-4 text-xs text-faint">
               {citationCount} {citationCount === 1 ? "citation" : "citations"} of {sources.length} {sources.length === 1 ? "source" : "sources"}. Updates as you write.
             </p>
-            <ol className="space-y-4">
+            <ol className="csl-bibliography space-y-4">
               {listed.map((s, i) => (
                 <motion.li
                   key={s.id}
                   initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: Math.min(i, 10) * 0.03 }}
-                  className={`border-l-2 pl-4 text-sm leading-relaxed [text-indent:-1.5rem] [padding-left:2.5rem] ${s.deleted_at ? "border-amber/60 text-muted" : "border-iris/40"}`}
+                  className={`border-l-2 pl-12 -indent-8 text-sm leading-relaxed ${s.deleted_at ? "border-amber/60 text-muted" : "border-iris/40"}`}
                 >
                   {formatted.get(s.id) ? <span dangerouslySetInnerHTML={{ __html: formatted.get(s.id)!.html }} /> : entry(s)}
                   {s.deleted_at && <span className="ml-1 text-amber"> (deleted from the library)</span>}
@@ -113,7 +113,7 @@ export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documen
       </div>
 
       {sources.length > 0 && (
-        <div className="flex gap-2 border-t border-line p-4">
+        <div className="clear-badge flex gap-2 border-t border-line p-4">
           <button onClick={() => void copyAll()} className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-sm font-semibold text-bg">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copied ? "Copied" : "Copy bibliography"}

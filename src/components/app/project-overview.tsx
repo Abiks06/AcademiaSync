@@ -3,14 +3,19 @@
 import { useActionState, useState, ViewTransition } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { BookMarked, FileText, Loader2, Plus, UserPlus } from "lucide-react";
+import { BookMarked, FileText, Loader2, MoreHorizontal, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
+import { deleteDocument, deleteProject } from "@/app/(app)/projects/[projectId]/manage-actions";
+import { Menu, type MenuItem } from "@/components/ui/menu";
+import { useToast } from "@/components/ui/toast";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
 import { accentColor } from "./accent";
 import { TimeAgo } from "./time-ago";
 import { MembersPanel, type Member, type PendingInvite } from "./members-panel";
+import { ConfirmDeleteDialog, ProjectDetailsDialog } from "./project-manage";
 
 type Props = {
   project: { id: string; name: string; field: string | null; description: string | null; accent: string };
@@ -33,7 +38,17 @@ const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
 export function ProjectOverview({ project, documents, members, invites, myRole, requestId, emailEnabled }: Props) {
   const accent = accentColor(project.accent);
   const [membersOpen, setMembersOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
+  const [deletingDoc, setDeletingDoc] = useState<{ id: string; title: string } | null>(null);
   const reduce = useReducedMotion();
+  const router = useRouter();
+  const toast = useToast();
+  const canManage = myRole === "owner" || myRole === "author";
+  const projectActions: MenuItem[] = [
+    ...(canManage ? [{ label: "Edit details", hint: "Name, field, description and colour", icon: <Pencil className="h-4 w-4" />, onSelect: () => setEditing(true) }] : []),
+    ...(myRole === "owner" ? [{ label: "Delete project", hint: "Removes every manuscript and source", icon: <Trash2 className="h-4 w-4" />, onSelect: () => setDeletingProject(true) }] : []),
+  ];
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -78,6 +93,9 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
             >
               <BookMarked className="h-4 w-4 text-iris" /> Library
             </Link>
+            {projectActions.length > 0 && (
+              <Menu label="Project actions" trigger={<MoreHorizontal className="h-4 w-4" />} items={projectActions} className="ml-2" />
+            )}
           </div>
         </div>
       </header>
@@ -101,11 +119,11 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.98 }}
                 transition={{ delay: i * 0.03 }}
-                className="glass group rounded-xl transition-colors hover:border-line-strong"
+                className="glass group flex items-center rounded-xl transition-colors hover:border-line-strong"
               >
                 <Link
                   href={`/projects/${project.id}/documents/${d.id}`}
-                  className="flex items-center gap-4 rounded-xl px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-iris"
+                  className="flex min-w-0 flex-1 items-center gap-4 rounded-xl px-4 py-3.5 outline-none focus-visible:ring-2 focus-visible:ring-iris"
                 >
                   <span className="grid h-9 w-9 place-items-center rounded-lg bg-iris-soft text-iris transition-transform group-hover:scale-110">
                     <FileText className="h-4 w-4" />
@@ -118,6 +136,17 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
                     {STATUS[d.status].label}
                   </span>
                 </Link>
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={() => setDeletingDoc({ id: d.id, title: d.title })}
+                    aria-label={`Delete ${d.title}`}
+                    title="Delete manuscript"
+                    className="mr-2 grid h-9 w-9 shrink-0 place-items-center rounded-lg text-faint transition-[color,background-color,opacity] hover:bg-danger/10 hover:text-danger focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </motion.li>
             ))}
           </AnimatePresence>
@@ -129,6 +158,51 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
       <AnimatePresence>
         {membersOpen && (
           <MembersPanel projectId={project.id} members={members} invites={invites} myRole={myRole} emailEnabled={emailEnabled} onClose={() => setMembersOpen(false)} />
+        )}
+        {editing && (
+          <ProjectDetailsDialog
+            project={project}
+            onClose={() => setEditing(false)}
+            onSaved={() => {
+              setEditing(false);
+              toast({ tone: "success", title: "Project details saved" });
+              router.refresh();
+            }}
+          />
+        )}
+        {deletingProject && (
+          <ConfirmDeleteDialog
+            title="Delete this project?"
+            body={<>Every manuscript, version, source and invite in <strong className="text-ink">{project.name}</strong> is deleted for all {members.length} {members.length === 1 ? "member" : "members"}. This can&apos;t be undone.</>}
+            confirmLabel="Delete project"
+            typeToConfirm={project.name}
+            onClose={() => setDeletingProject(false)}
+            onConfirm={async () => {
+              const result = await deleteProject({ projectId: project.id });
+              if (result.ok) {
+                toast({ tone: "success", title: `Deleted ${project.name}` });
+                router.push("/projects");
+              }
+              return result;
+            }}
+          />
+        )}
+        {deletingDoc && (
+          <ConfirmDeleteDialog
+            title="Delete this manuscript?"
+            body={<><strong className="text-ink">{deletingDoc.title}</strong> and its version history are deleted for everyone in the project. This can&apos;t be undone.</>}
+            confirmLabel="Delete manuscript"
+            onClose={() => setDeletingDoc(null)}
+            onConfirm={async () => {
+              const result = await deleteDocument({ projectId: project.id, documentId: deletingDoc.id });
+              if (result.ok) {
+                setDeletingDoc(null);
+                toast({ tone: "success", title: `Deleted ${deletingDoc.title}` });
+                router.refresh();
+              }
+              return result;
+            }}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -152,7 +226,7 @@ function NewDocumentForm({ projectId, requestId }: { projectId: string; requestI
         required
         maxLength={200}
         placeholder="Name a new manuscript, e.g. Results draft"
-        className="h-11 flex-1 rounded-xl border border-line bg-bg-elev px-4 outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-iris focus:shadow-[0_0_0_4px_var(--iris-soft)]"
+        className="h-11 w-full rounded-xl border border-line bg-bg-elev px-4 sm:w-auto sm:flex-1 outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-iris focus:shadow-[0_0_0_4px_var(--iris-soft)]"
       />
       <AddButton />
       {state.error && <p role="alert" className="text-sm text-danger sm:basis-full">{state.error}</p>}

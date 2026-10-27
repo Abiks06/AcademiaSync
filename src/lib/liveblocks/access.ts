@@ -17,3 +17,14 @@ export async function announceAccessChange(documentIds: string[]) {
     ),
   );
 }
+
+/**
+ * Shuts and deletes the rooms of documents that were just deleted. Open editors are told
+ * first, so they show "no longer available" instead of retrying. Never throws.
+ */
+export async function closeRooms(documentIds: string[]) {
+  if (!isLiveblocksConfigured()) return;
+  const liveblocks = getLiveblocks();
+  await announceAccessChange(documentIds);
+  await Promise.all(documentIds.map((id) => liveblocks.deleteRoom(roomIdFor(id)).catch(() => undefined)));
+}

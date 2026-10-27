@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { Check, MessageSquareText, Sparkles } from "lucide-react";
 
@@ -9,6 +9,7 @@ const SENTENCE_A =
 const SENTENCE_B = "Polymer identity was confirmed with FTIR on a 20% subsample.";
 
 type Phase = "typingA" | "cite" | "typingB" | "flag" | "resolve" | "hold";
+const noopSubscribe = () => () => {};
 
 const PEOPLE = [
   { initials: "AO", name: "Ayomide", color: "var(--iris)" },
@@ -21,11 +22,17 @@ const PEOPLE = [
  * the same manuscript while sources and review flags appear around them.
  */
 export function LiveManuscript() {
-  const reduce = useReducedMotion();
-  const [phase, setPhase] = useState<Phase>(reduce ? "hold" : "typingA");
-  const [a, setA] = useState(reduce ? SENTENCE_A.length : 0);
-  const [b, setB] = useState(reduce ? SENTENCE_B.length : 0);
+  // The server can't know the reader's motion preference, so the first render
+  // always matches the server's and the finished frame is shown after hydration.
+  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
+  const reduce = useReducedMotion() === true && hydrated;
+  const [livePhase, setPhase] = useState<Phase>("typingA");
+  const [liveA, setA] = useState(0);
+  const [liveB, setB] = useState(0);
   const [cycle, setCycle] = useState(0);
+  const phase: Phase = reduce ? "hold" : livePhase;
+  const a = reduce ? SENTENCE_A.length : liveA;
+  const b = reduce ? SENTENCE_B.length : liveB;
 
   useEffect(() => {
     if (reduce) return;
