@@ -21,6 +21,32 @@ describe("pastedIdentifier", () => {
     expect(pastedIdentifier("PMID:12345678")).toEqual({ kind: "pubmed", id: "12345678" });
   });
 
+  it("drops punctuation a sentence leaves on the end", () => {
+    expect(pastedIdentifier("10.1126/science.1094559.")).toEqual({ kind: "doi", id: "10.1126/science.1094559" });
+    expect(pastedIdentifier("https://doi.org/10.1126/science.1094559),")).toEqual({ kind: "doi", id: "10.1126/science.1094559" });
+    expect(pastedIdentifier("doi:10.1126/science.1094559\u201d")).toEqual({ kind: "doi", id: "10.1126/science.1094559" });
+    // Balanced parentheses are part of some DOIs.
+    expect(pastedIdentifier("10.1016/S0140-6736(20)30183-5")).toEqual({ kind: "doi", id: "10.1016/s0140-6736(20)30183-5" });
+    expect(pastedIdentifier("10.1016/S0140-6736(20)30183-5).")).toEqual({ kind: "doi", id: "10.1016/s0140-6736(20)30183-5" });
+  });
+
+  it("drops the version and page from bioRxiv and medRxiv links", () => {
+    const id = { kind: "doi", id: "10.1101/2020.03.01.972133" };
+    expect(pastedIdentifier("https://www.biorxiv.org/content/10.1101/2020.03.01.972133v2")).toEqual(id);
+    expect(pastedIdentifier("https://www.biorxiv.org/content/10.1101/2020.03.01.972133v1.full.pdf")).toEqual(id);
+    expect(pastedIdentifier("https://www.medrxiv.org/content/10.1101/2020.03.01.972133v3.full")).toEqual(id);
+    expect(pastedIdentifier("https://doi.org/10.1101/2020.03.01.972133")).toEqual(id);
+  });
+
+  it("takes the old PubMed address", () => {
+    expect(pastedIdentifier("https://www.ncbi.nlm.nih.gov/pubmed/12345678")).toEqual({ kind: "pubmed", id: "12345678" });
+    expect(pastedIdentifier("http://ncbi.nlm.nih.gov/pubmed/12345678/")).toEqual({ kind: "pubmed", id: "12345678" });
+  });
+
+  it("ignores a link with a broken escape instead of throwing", () => {
+    expect(pastedIdentifier("https://example.com/doi/10.1000/abc%E0%A4%A")).toBeNull();
+  });
+
   it("leaves ordinary text alone", () => {
     for (const text of ["2101.01234", "12345678", "2024", "see 10.1126/science.1094559", "https://example.com/page", "hello", ""]) {
       expect(pastedIdentifier(text)).toBeNull();

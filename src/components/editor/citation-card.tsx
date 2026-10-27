@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { motion } from "motion/react";
@@ -9,21 +9,25 @@ import { formatReference } from "@/lib/library/format";
 import { KIND_LABEL, type Source } from "@/lib/library/types";
 import { sourceDetails, type SourceDetailsResult } from "@/app/(app)/projects/[projectId]/library/actions";
 import { SPRING } from "@/components/motion/tokens";
+import type { Editor } from "@tiptap/react";
 
 type Details = Extract<SourceDetailsResult, { ok: true }>;
 
-// Abstracts and who added a source, fetched once per source per page.
+// Abstracts and who added a source, fetched once per version of a source per page. A
+// failed fetch isn't kept, so hovering again tries again.
 const details = new Map<string, Promise<Details | null>>();
-function loadDetails(id: string) {
-  let pending = details.get(id);
+function loadDetails(id: string, version: string) {
+  const key = `${id}@${version}`;
+  let pending = details.get(key);
   if (!pending) {
+    const forget = () => {
+      details.delete(key);
+      return null;
+    };
     pending = sourceDetails(id)
-      .then((r) => (r.ok ? r : null))
-      .catch(() => {
-        details.delete(id);
-        return null;
-      });
-    details.set(id, pending);
+      .then((r) => (r.ok ? r : forget()))
+      .catch(forget);
+    details.set(key, pending);
   }
   return pending;
 }
@@ -43,26 +47,37 @@ function byline(s: Source) {
  * and follows it while the page scrolls.
  */
 export function CitationCard({
+  id,
   anchor,
+  editor,
   sources,
   missing,
   projectId,
   onEdit,
   onPointerEnter,
   onPointerLeave,
+  onEscape,
 }: {
+  id: string;
   anchor: RefObject<HTMLElement | null>;
+  /** The card follows its citation as the text around it changes. */
+  editor: Editor;
   sources: (Source | undefined)[];
   missing: boolean;
   projectId: string;
   onEdit: (() => void) | null;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
+  /** Escape inside the card: close it and go back to the text. */
+  onEscape: () => void;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number; below: boolean; originX: number } | null>(null);
 
   useLayoutEffect(() => {
+    // The side the card first opens on, kept while it's open so it doesn't jump from
+    // below to above as the abstract loads or the page scrolls.
+    let side: boolean | undefined;
     const measure = () => {
       const el = anchor.current;
       if (!el) return;
@@ -70,7 +85,8 @@ export function CitationCard({
       const width = Math.min(WIDTH, window.innerWidth - 24);
       const left = Math.max(12, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - 12));
       const height = card.current?.offsetHeight ?? 220;
-      const below = r.bottom + GAP + height < window.innerHeight - 12 || r.top - GAP - height < 12;
+      side ??= r.bottom + GAP + height < window.innerHeight - 12 || r.top - GAP - height < 12;
+      const below = side;
       setPlace({ left, top: below ? r.bottom + GAP : r.top - GAP - height, below, originX: r.left + r.width / 2 - left });
     };
     measure();
@@ -79,12 +95,21 @@ export function CitationCard({
     if (card.current) resize.observe(card.current);
     window.addEventListener("scroll", measure, { passive: true, capture: true });
     window.addEventListener("resize", measure);
+    editor.on("update", measure);
     return () => {
       resize.disconnect();
       window.removeEventListener("scroll", measure, { capture: true });
       window.removeEventListener("resize", measure);
+      editor.off("update", measure);
     };
-  }, [anchor]);
+  }, [anchor, editor]);
+
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    e.stopPropagation();
+    onEscape();
+  };
 
   const known = sources.filter((s): s is Source => Boolean(s));
   const shown = known.slice(0, 3);
@@ -92,7 +117,13 @@ export function CitationCard({
   return createPortal(
     <motion.div
       ref={card}
-      role="tooltip"
+      id={id}
+      // Not modal: the text stays usable. Tab or Enter on the selected citation moves in here.
+      role="dialog"
+      aria-modal="false"
+      aria-label="About this citation"
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       initial={{ opacity: 0, scale: 0.92, y: place?.below === false ? 6 : -6 }}
@@ -140,11 +171,11 @@ function SourceBlock({ source: s, projectId, divider }: { source: Source; projec
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     let live = true;
-    void loadDetails(s.id).then((d) => live && setInfo(d));
+    void loadDetails(s.id, s.updated_at).then((d) => live && setInfo(d));
     return () => {
       live = false;
     };
-  }, [s.id]);
+  }, [s.id, s.updated_at]);
 
   const authors = byline(s);
   const where = [s.container, s.volume && `${s.volume}${s.issue ? `(${s.issue})` : ""}`, s.pages].filter(Boolean).join(", ");

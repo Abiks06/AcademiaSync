@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
@@ -16,7 +16,7 @@ const STEPS: Step[] = [
     body: () => "Everyone in the project sees changes as they're typed, with each person's cursor in their own colour. Type / at the start of a line for headings, lists and quotes.",
   },
   {
-    target: ".manuscript-prose .citation",
+    target: ".manuscript-prose .citation:not(.citation-pending)",
     title: "Every citation knows its paper",
     body: () => "Hover over a citation to see the paper, its abstract and the team's notes on it, with links to the library and the paper itself.",
   },
@@ -75,6 +75,7 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const [index, setIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const next = useRef<HTMLButtonElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
   const step = steps[index];
 
   const finish = useCallback(() => {
@@ -103,15 +104,43 @@ export function Tour({ onClose }: { onClose: () => void }) {
   }, [step, reduce]);
 
   useEffect(() => next.current?.focus({ preventScroll: true }), [index]);
+  // Focus goes back where it was (the editor, the palette's caller) when the tour ends.
+  useEffect(() => {
+    const before = document.activeElement;
+    return () => {
+      if (before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+    };
+  }, []);
+  // ⌘K opens the palette over the tour, so the tour gets out of the way.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") finish();
-      else if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, steps.length - 1));
-      else if (e.key === "ArrowLeft") setIndex((i) => Math.max(i - 1, 0));
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") finish();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [finish, steps.length]);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [finish]);
+
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      finish();
+    } else if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, steps.length - 1));
+    else if (e.key === "ArrowLeft") setIndex((i) => Math.max(i - 1, 0));
+    else if (e.key === "Tab") {
+      // Keep Tab inside the card while the rest of the page is dimmed.
+      const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  };
 
   // The spotlight: a hole the size of the part being explained. A huge shadow around it dims the rest.
   const vw = typeof window === "undefined" ? 1200 : window.innerWidth;
@@ -143,11 +172,14 @@ export function Tour({ onClose }: { onClose: () => void }) {
         initial={false}
         animate={{ ...hole, opacity: 1 }}
         transition={SPRING.gentle}
-        style={{ boxShadow: "0 0 0 200vmax rgb(4 6 20 / 0.62), 0 0 0 2px var(--iris), 0 0 40px 4px rgb(139 149 255 / 0.35)" }}
+        style={{ boxShadow: "0 0 0 200vmax var(--scrim), 0 0 0 2px var(--iris), 0 0 40px 4px color-mix(in oklab, var(--iris) 35%, transparent)" }}
       />
       <motion.div
+        ref={cardRef}
         role="dialog"
         aria-modal="true"
+        data-palette-over
+        onKeyDown={onKeyDown}
         aria-labelledby="tour-title"
         initial={{ opacity: 0, y: 12, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1, left: cardLeft, top: cardTop }}

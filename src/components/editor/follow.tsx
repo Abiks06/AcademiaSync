@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Eye, X } from "lucide-react";
 import { shallow, useOthers, useSelf, useUpdateMyPresence } from "@liveblocks/react/suspense";
@@ -12,6 +12,12 @@ import { useToast } from "@/components/ui/toast";
 type FollowCtx = { following: string | null; follow: (userId: string | null) => void };
 export const FollowContext = createContext<FollowCtx>({ following: null, follow: () => {} });
 export const useFollow = () => useContext(FollowContext);
+
+/** How long someone can drop off (a flaky connection, a reload) before following them stops. */
+const GONE_GRACE_MS = 2500;
+
+/** Marks the controls that start and stop following, so pressing one isn't taken as "stop". */
+export const FOLLOW_CONTROL = "data-follow-control";
 
 /** How far below the top of the window the sticky editor bar ends; "what's on screen" starts there. */
 function readingLine() {
@@ -109,7 +115,8 @@ function usePeople(): Person[] {
 
 /**
  * While following someone, this tab scrolls to whatever they're looking at. Scrolling,
- * typing or pressing Escape yourself stops it, and so does them leaving.
+ * clicking, typing or pressing Escape yourself stops it, and so does them leaving (after a
+ * moment's grace, in case they're only reconnecting).
  */
 export function useFollowScroll(editor: Editor | null) {
   const { following, follow } = useFollow();
@@ -128,20 +135,48 @@ export function useFollowScroll(editor: Editor | null) {
     if (name !== "They") lastName.current = name;
   }, [name]);
 
+  // Where the window should be scrolled to. One animation frame loop eases towards it, so a
+  // stream of updates reads as one glide instead of a smooth scroll restarted every 120 ms.
+  const goal = useRef<number | null>(null);
+
   useEffect(() => {
     if (!editor || !following || target === null) return;
     if (target === "gone") {
-      follow(null);
-      toast({ title: `${lastName.current.split(" ")[0]} left the manuscript`, description: "You've stopped following." });
-      return;
+      const timer = setTimeout(() => {
+        follow(null);
+        toast({ title: `${lastName.current.split(" ")[0]} left the manuscript`, description: "You've stopped following." });
+      }, GONE_GRACE_MS);
+      return () => clearTimeout(timer);
     }
     if (!target) return;
     const [block, offset] = target.split(":").map(Number);
     const el = blockElement(editor, block);
     if (!el) return;
     const r = el.getBoundingClientRect();
-    window.scrollTo({ top: window.scrollY + r.top + offset * r.height - readingLine(), behavior: reduce ? "auto" : "smooth" });
+    const max = document.documentElement.scrollHeight - window.innerHeight;
+    const top = Math.max(0, Math.min(max, window.scrollY + r.top + offset * r.height - readingLine()));
+    if (reduce) window.scrollTo({ top, behavior: "auto" });
+    else goal.current = top;
   }, [editor, following, target, follow, toast, reduce]);
+
+  useEffect(() => {
+    if (!following || reduce) return;
+    let frame = requestAnimationFrame(function step() {
+      const to = goal.current;
+      if (to !== null) {
+        const gap = to - window.scrollY;
+        if (Math.abs(gap) < 1) {
+          window.scrollTo(0, to);
+          goal.current = null;
+        } else window.scrollTo(0, window.scrollY + Math.sign(gap) * Math.max(1, Math.abs(gap) * 0.18));
+      }
+      frame = requestAnimationFrame(step);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      goal.current = null;
+    };
+  }, [following, reduce]);
 
   useEffect(() => {
     if (!following) return;
@@ -149,12 +184,17 @@ export function useFollowScroll(editor: Editor | null) {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" || !["Shift", "Control", "Alt", "Meta"].includes(e.key)) stop();
     };
+    const onPointer = (e: PointerEvent) => {
+      if (!(e.target instanceof Element && e.target.closest(`[${FOLLOW_CONTROL}]`))) stop();
+    };
     window.addEventListener("wheel", stop, { passive: true });
     window.addEventListener("touchmove", stop, { passive: true });
+    window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("wheel", stop);
       window.removeEventListener("touchmove", stop);
+      window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("keydown", onKey);
     };
   }, [following, follow]);
@@ -184,6 +224,7 @@ export function FollowBanner() {
           <motion.div
             key="pill"
             role="status"
+            {...{ [FOLLOW_CONTROL]: "" }}
             initial={{ opacity: 0, y: 16, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, transition: EXIT }}
@@ -241,31 +282,31 @@ export function MarginPresence({ editor, container }: { editor: Editor | null; c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editor, container, key, tick]);
 
-  const seen = new Map<number, number>();
+  const narrow = useNarrow();
+  const { shown, extra } = layoutMargin(people, tops, following);
+  // Side by side in the wide margin; one above the other in a phone's narrow one.
+  const offset = (slot: number) => (narrow ? { x: 0, y: slot * 14 } : { x: slot * 14, y: 0 });
   return (
     <div aria-label="Where collaborators are" className="pointer-events-none absolute inset-y-0 left-0 w-6 sm:w-14">
       <AnimatePresence>
-        {people.map((p) => {
-          const top = tops[p.id];
-          if (top === undefined) return null;
-          // Two people in one paragraph sit side by side.
-          const slot = seen.get(Math.round(top)) ?? 0;
-          seen.set(Math.round(top), slot + 1);
+        {shown.map(({ person: p, top, slot }) => {
           const followed = following === p.id;
+          const at = offset(slot);
           return (
             <motion.button
               key={p.id}
               type="button"
+              {...{ [FOLLOW_CONTROL]: "" }}
               onClick={() => follow(followed ? null : p.id)}
               aria-pressed={followed}
               aria-label={followed ? `Stop following ${p.name}` : `${p.name} is here. Follow them`}
               title={followed ? `Following ${p.name}` : `${p.name} is here. Click to follow`}
-              initial={{ opacity: 0, scale: 0.4, top: top + 4 }}
-              animate={{ opacity: 1, scale: 1, top: top + 4 }}
+              initial={{ opacity: 0, scale: 0.4, x: at.x, y: top + 4 + at.y }}
+              animate={{ opacity: 1, scale: 1, x: at.x, y: top + 4 + at.y }}
               exit={{ opacity: 0, scale: 0.4, transition: EXIT }}
               transition={SPRING.gentle}
-              className="pointer-events-auto absolute grid h-[22px] w-[22px] place-items-center overflow-hidden rounded-full text-[9px] font-semibold text-bg shadow-md transition-transform hover:scale-110"
-              style={{ left: `calc(${slot * 14}px + clamp(1px, 1.2vw, 1.25rem))`, background: p.color, boxShadow: followed ? `0 0 0 2px var(--panel-solid), 0 0 0 4px ${p.color}` : undefined }}
+              className="pointer-events-auto absolute top-0 left-[clamp(1px,1.2vw,1.25rem)] grid h-[22px] w-[22px] place-items-center overflow-hidden rounded-full text-[9px] font-semibold text-bg shadow-md transition-[box-shadow] hover:brightness-110"
+              style={{ background: p.color, boxShadow: followed ? `0 0 0 2px var(--panel-solid), 0 0 0 4px ${p.color}` : undefined }}
             >
               {p.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -276,7 +317,60 @@ export function MarginPresence({ editor, container }: { editor: Editor | null; c
             </motion.button>
           );
         })}
+        {extra.map(({ top, names }) => {
+          const at = offset(MAX_PER_BLOCK);
+          return (
+            <motion.span
+              key={`more-${top}`}
+              role="img"
+              aria-label={`Also here: ${names.join(", ")}`}
+              title={`Also here: ${names.join(", ")}`}
+              initial={{ opacity: 0, scale: 0.4, x: at.x, y: top + 4 + at.y }}
+              animate={{ opacity: 1, scale: 1, x: at.x, y: top + 4 + at.y }}
+              exit={{ opacity: 0, scale: 0.4, transition: EXIT }}
+              transition={SPRING.gentle}
+              className="pointer-events-auto absolute top-0 left-[clamp(1px,1.2vw,1.25rem)] grid h-[22px] min-w-[22px] place-items-center rounded-full border border-line-strong bg-panel-solid px-1 text-[9px] font-semibold text-muted shadow-md"
+            >
+              +{names.length}
+            </motion.span>
+          );
+        })}
       </AnimatePresence>
     </div>
   );
+}
+
+/** At most this many avatars beside one paragraph; the rest fold into a "+N". */
+const MAX_PER_BLOCK = 2;
+
+/** Who goes where in the margin: each person's slot beside their paragraph, and the overflow. */
+function layoutMargin(people: Person[], tops: Record<string, number>, following: string | null) {
+  const byTop = new Map<number, Person[]>();
+  for (const p of people) {
+    const top = tops[p.id];
+    if (top === undefined) continue;
+    const key = Math.round(top);
+    byTop.set(key, [...(byTop.get(key) ?? []), p]);
+  }
+  const shown: { person: Person; top: number; slot: number }[] = [];
+  const extra: { top: number; names: string[] }[] = [];
+  for (const [top, all] of byTop) {
+    // When some fold away, the one being followed always stays visible.
+    const here = [...all].sort((a, b) => Number(b.id === following) - Number(a.id === following));
+    const fits = here.length > MAX_PER_BLOCK ? MAX_PER_BLOCK - 1 : MAX_PER_BLOCK;
+    here.slice(0, fits).forEach((person, slot) => shown.push({ person, top, slot }));
+    if (here.length > fits) extra.push({ top, names: here.slice(fits).map((p) => p.name) });
+  }
+  return { shown, extra };
+}
+
+const narrowQuery = "(max-width: 639px)";
+function subscribeNarrow(onChange: () => void) {
+  const media = window.matchMedia(narrowQuery);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+}
+/** Whether the page is phone-width, where the margin is too narrow for avatars side by side. */
+function useNarrow() {
+  return useSyncExternalStore(subscribeNarrow, () => window.matchMedia(narrowQuery).matches, () => false);
 }

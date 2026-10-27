@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search } from "lucide-react";
+import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search, X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { SPRING } from "@/components/motion/tokens";
@@ -84,8 +84,9 @@ export function PaletteProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k")) return;
-      // Another dialog is in charge of the keyboard; the palette waits its turn.
-      const dialog = document.querySelector('[role="dialog"]:not([data-palette])');
+      // Another dialog is in charge of the keyboard; the palette waits its turn. The tour
+      // steps aside for it (it closes itself on this key).
+      const dialog = document.querySelector('[role="dialog"]:not([data-palette]):not([data-palette-over])');
       if (dialog && !open) return;
       e.preventDefault();
       e.stopPropagation();
@@ -112,10 +113,13 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState<PaletteIndex | null>(cachedIndex);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [active, setActive] = useState(0);
+  // The highlighted row, by key, so it stays put when results arrive or reorder.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
   const listId = useId();
+  // One sample project per opening of the palette, however many times it's chosen.
+  const [sampleRequest] = useState(() => crypto.randomUUID());
 
   useEffect(() => {
     let live = true;
@@ -185,7 +189,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
         run: async () => {
           setBusy("sample");
           try {
-            const result = await createSampleProject();
+            const result = await createSampleProject(sampleRequest);
             if (!result.ok) {
               toast({ tone: "error", title: "Couldn't create the sample project", description: result.error });
               return;
@@ -252,7 +256,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
       }
     }
     return out;
-  }, [registered, index, go, onClose, toast]);
+  }, [registered, index, go, onClose, toast, sampleRequest]);
 
   const shown = useMemo(() => {
     const groups = new Map<string, Item[]>();
@@ -283,9 +287,15 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
   const [lastQuery, setLastQuery] = useState(query);
   if (query !== lastQuery) {
     setLastQuery(query);
-    setActive(0);
+    setActiveKey(null);
   }
-  const current = Math.min(active, Math.max(flat.length - 1, 0));
+  const current = (activeKey !== null ? position.get(activeKey) : undefined) ?? 0;
+  const setActive = (i: number) => setActiveKey(flat[i]?.key ?? null);
+  // While a command is working (making the sample project, say), nothing else runs.
+  const run = (item: Item | undefined) => {
+    if (!item || busy) return;
+    item.run();
+  };
 
   useEffect(() => {
     list.current?.querySelector(`[data-index="${current}"]`)?.scrollIntoView({ block: "nearest" });
@@ -299,8 +309,10 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
       e.preventDefault();
       setActive((current - 1 + flat.length) % Math.max(flat.length, 1));
     } else if (e.key === "Enter") {
+      // Enter that confirms an input method's word (Japanese, Chinese…) isn't a choice.
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
-      flat[current]?.run();
+      run(flat[current]);
     }
   };
 
@@ -327,6 +339,9 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
           />
           {!index && !loadError && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-faint" aria-label="Loading" />}
           <kbd className="hidden rounded-md border border-line px-1.5 py-0.5 font-mono text-[10px] text-faint sm:block">Esc</kbd>
+          <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 grid h-10 w-10 place-items-center rounded-full text-muted transition-colors hover:text-ink sm:hidden">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         <div ref={list} id={listId} role="listbox" aria-label="Results" className="max-h-[min(60dvh,28rem)] overflow-y-auto overscroll-contain p-2">
@@ -343,12 +358,13 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
                     data-index={i}
                     role="option"
                     aria-selected={isActive}
+                    aria-disabled={busy ? true : undefined}
                     initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ ...SPRING.snappy, delay: query ? 0 : Math.min(i, 10) * 0.015 }}
                     onPointerMove={() => !isActive && setActive(i)}
-                    onClick={() => item.run()}
-                    className="relative flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm"
+                    onClick={() => run(item)}
+                    className="relative flex cursor-pointer items-center aria-disabled:cursor-wait gap-3 rounded-xl px-3 py-2.5 text-sm"
                   >
                     {isActive && <motion.span layoutId="palette-active" transition={SPRING.snappy} className="absolute inset-0 rounded-xl bg-iris-soft" />}
                     <span className={`relative grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line ${isActive ? "text-iris" : "text-muted"}`}>
@@ -364,11 +380,16 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
               })}
             </div>
           ))}
-          {flat.length === 0 && (
-            <p className="px-3 py-10 text-center text-sm text-muted">
-              Nothing matches “{query}”. Try a title, an author&apos;s surname or a project name.
-            </p>
-          )}
+          {flat.length === 0 &&
+            (!index && !loadError ? (
+              <p role="status" className="px-3 py-10 text-center text-sm text-muted">
+                Searching…
+              </p>
+            ) : (
+              <p className="px-3 py-10 text-center text-sm text-muted">
+                Nothing matches “{query}”. Try a title, an author&apos;s surname or a project name.
+              </p>
+            ))}
           {loadError && <p role="alert" className="px-3 pb-2 text-xs text-amber">{loadError}</p>}
         </div>
 

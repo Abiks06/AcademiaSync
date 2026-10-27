@@ -17,6 +17,7 @@ import {
   useEventListener,
   useOthers,
   useRoom,
+  useSelf,
   useStatus,
   useThreads,
   useUpdateMyPresence,
@@ -52,7 +53,7 @@ import { SlashBridge, SlashCommands, type SlashState } from "@/lib/editor/slash-
 import { PasteBridge, SmartPaste, finishSmartPaste, pendingPosition } from "@/lib/editor/smart-paste";
 import { identifierQuery, matchesIdentifier } from "@/lib/library/paste-identifier";
 import type { Identifier } from "@/lib/library/lookup";
-import { usePaletteCommands, type PaletteCommand } from "@/components/app/command-palette";
+import { useModKey, usePaletteCommands, type PaletteCommand } from "@/components/app/command-palette";
 import { SlashMenu } from "./slash-menu";
 import { Citation, quietCitationsForAMoment } from "./citation";
 import { CitationPicker } from "./citation-picker";
@@ -76,6 +77,8 @@ export type WorkspaceProps = {
 
 const STATUS_LABEL: Record<DocumentStatus, string> = { draft: "Draft", in_review: "In review", final: "Final" };
 const SYNC_IDLE_MS = 20_000;
+// The local Liveblocks dev server, for testing on a laptop. Production builds ignore it.
+const LIVEBLOCKS_BASE_URL = process.env.NODE_ENV === "production" ? undefined : process.env.NEXT_PUBLIC_LIVEBLOCKS_BASE_URL || undefined;
 
 export function DocumentWorkspace(props: WorkspaceProps) {
   const [signedOut, setSignedOut] = useState(false);
@@ -94,7 +97,7 @@ export function DocumentWorkspace(props: WorkspaceProps) {
   return (
     <LiveblocksProvider
       // Set only when running against the local Liveblocks dev server.
-      baseUrl={process.env.NEXT_PUBLIC_LIVEBLOCKS_BASE_URL || undefined}
+      baseUrl={LIVEBLOCKS_BASE_URL}
       authEndpoint={async (room) => {
         try {
           const res = await fetch("/api/liveblocks-auth", {
@@ -276,7 +279,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
 
   // A tab on an older version can't show citations and would delete new ones, so while one
   // is open nobody adds or edits citations. It clears as soon as that tab reloads or leaves.
-  const olderTabOpen = useOthers((others) => others.some((o) => (o.presence.schema ?? 0) < SCHEMA_VERSION));
+  // Readers can't change the text, so their tabs don't count.
+  const olderTabOpen = useOthers((others) => others.some((o) => o.canWrite && (o.presence.schema ?? 0) < SCHEMA_VERSION));
   const canCite = canEdit && !olderTabOpen;
   const othersHere = useOthers((others) => new Set(others.map((o) => o.id)).size);
 
@@ -284,8 +288,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   // was removed) and reload the page data, so a new role takes effect straight away.
   const router = useRouter();
   const client = useClient();
-  useEventListener(({ event }) => {
-    if (event.type !== "access-changed") return;
+  useEventListener(({ event, user }) => {
+    // Only the server sends this (user is null then); a collaborator's tab can't fake it.
+    if (event.type !== "access-changed" || user !== null) return;
     // logout() drops the cached token, so reconnecting has to ask the server again.
     client.logout();
     room.reconnect();
@@ -318,6 +323,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const canCiteRef = useRef(canCite);
   // The paste plugin lives outside React too, and talks through its own bridge.
   const [pasteBridge] = useState(() => new PasteBridge());
+  // What a screen reader hears about a pasted link: "Looking up…", then the outcome.
+  const [pasteStatus, setPasteStatus] = useState("");
+  const announce = useCallback((text: string) => setPasteStatus(text), []);
   useEffect(() => {
     canCiteRef.current = canCite;
     pasteBridge.setEnabled(canCite);
@@ -391,16 +399,19 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   }, [tourAsked]);
 
   const download = useExport(document.id, document.title);
+  const mod = useModKey();
+  const selfId = useSelf((me) => me.id);
   const people = useOthers((others) => {
     const seen = new Map<string, string>();
-    for (const o of others) if (o.id && !seen.has(o.id)) seen.set(o.id, o.info?.name ?? "Collaborator");
+    // My own other tabs aren't someone to follow.
+    for (const o of others) if (o.id && o.id !== selfId && !seen.has(o.id)) seen.set(o.id, o.info?.name ?? "Collaborator");
     return [...seen].map(([id, name]) => `${id}\u0000${name}`).join("\u0001");
   });
   const commands = useMemo<PaletteCommand[]>(() => {
     const list: PaletteCommand[] = [];
     if (canCite) {
       list.push(
-        { id: "cite", label: "Cite a source", hint: "Ctrl/Cmd+Shift+K", keywords: "citation reference insert", icon: <Quote className="h-4 w-4" />, perform: startCiting },
+        { id: "cite", label: "Cite a source", hint: `${mod}+Shift+K`, keywords: "citation reference insert", icon: <Quote className="h-4 w-4" />, perform: startCiting },
         { id: "add-source", label: "Add a source and cite it", keywords: "doi arxiv pubmed new reference", icon: <Plus className="h-4 w-4" />, perform: () => setPicker({ mode: "add" }) },
       );
     }
@@ -416,7 +427,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       list.push({ id: `follow-${id}`, label: `Follow ${name}`, hint: "Scroll with them through the manuscript", keywords: "presence watch", icon: <Eye className="h-4 w-4" />, perform: () => setFollowing(id) });
     }
     return list;
-  }, [canCite, startCiting, download, people]);
+  }, [canCite, startCiting, download, people, mod]);
   usePaletteCommands("Here", commands);
 
   // Count words, and after a pause ask the server to copy the live text into Supabase (and
@@ -481,18 +492,26 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     pasteBridge.setHandler(async (ident: Identifier, pending: { id: string; text: string }) => {
       if (!editor) return;
       const land = (fn: (at: number) => void) => {
+        // The person may have left the manuscript while the paper was looked up.
+        if (editor.isDestroyed) return;
         const at = pendingPosition(editor.state, pending.id);
         finishSmartPaste(editor.view, pending.id);
         if (at !== null) fn(at);
       };
       const asText = (title: string, description: string) => {
-        land((at) => editor.chain().insertContentAt(at, pending.text).run());
+        // A text node, so the link goes in exactly as pasted and isn't parsed as HTML.
+        land((at) => editor.chain().insertContentAt(at, { type: "text", text: pending.text }).run());
+        announce(`${title}. ${description}`);
         toast({ tone: "error", title, description });
       };
       const cite = (source: Source) => land((at) => insert([{ sourceId: source.id }], "parenthetical", source, at));
 
+      announce(`Looking up ${pending.text}`);
       const existing = live.find((s) => matchesIdentifier(s, ident));
-      if (existing) return cite(existing);
+      if (existing) {
+        cite(existing);
+        return announce(`Cited ${existing.title}`);
+      }
       try {
         const found = await lookupSource(identifierQuery(ident));
         if (!found.ok) return asText("Pasted as text", found.error);
@@ -502,10 +521,13 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
           const fresh = await listSources(project.id, { abstracts: false });
           const theirs = fresh.ok ? fresh.sources.find((s) => !s.deleted_at && matchesIdentifier(s, ident)) : undefined;
           if (fresh.ok) setSources(fresh.sources);
-          return theirs ? cite(theirs) : asText("Pasted as text", saved.error);
+          if (!theirs) return asText("Pasted as text", saved.error);
+          cite(theirs);
+          return announce(`Cited ${theirs.title}`);
         }
         setSources((prev) => (prev.some((s) => s.id === saved.source.id) ? prev : [saved.source, ...prev]));
         cite(saved.source);
+        announce(`Cited ${saved.source.title}`);
         toast({
           tone: "success",
           title: "Added to the library and cited",
@@ -515,7 +537,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         asText("Pasted as text", "Couldn't reach AcademiaSync to look the paper up. Check your connection and paste it again.");
       }
     });
-  }, [editor, insert, live, project.id, toast, pasteBridge]);
+  }, [editor, insert, live, project.id, toast, pasteBridge, announce]);
 
   const onSourceAdded = useCallback(
     (source: Source) => {
@@ -582,7 +604,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
                 onClick={startCiting}
                 data-tour="cite"
                 disabled={!canCite}
-                title={canCite ? "Cite a source (Ctrl/Cmd+Shift+K, or type [@ or /cite)" : "Someone has this manuscript open in an older version. Citing resumes when they reload."}
+                title={canCite ? `Cite a source (${mod}+Shift+K, or type [@ or /cite)` : "Someone has this manuscript open in an older version. Citing resumes when they reload."}
                 className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong disabled:opacity-50"
               >
                 <Quote className="h-4 w-4 text-iris" /> Cite
@@ -637,7 +659,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: DURATION.base }}
-        className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
+        className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
       >
         {/* Writing happens on solid paper, not glass. */}
         <div ref={page} data-tour="page" className="print-area relative min-h-[70dvh] rounded-2xl border border-line bg-panel-solid px-6 py-10 shadow-[0_30px_80px_-40px_rgb(0_0_0/0.55)] sm:px-14 sm:py-14">
@@ -692,6 +714,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         )}
       </AnimatePresence>
       <FollowBanner />
+      <p role="status" aria-live="polite" className="sr-only">
+        {pasteStatus}
+      </p>
       {touring && <Tour onClose={() => setTouring(false)} />}
     </div>
     </FollowContext.Provider>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useModKey } from "@/components/app/command-palette";
 import { motion } from "motion/react";
 import { AlertTriangle, Check, Copy, Download, Quote, X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
@@ -24,6 +25,7 @@ type Props = {
 /** The bibliography for this manuscript: exactly the sources it cites. */
 export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documentTitle }: Props) {
   const { byId, cite } = useSources();
+  const mod = useModKey();
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const numeric = isNumericStyle(cite.style);
@@ -86,7 +88,7 @@ export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documen
         {sources.length === 0 ? (
           <p className="text-sm text-muted">
             Nothing cited yet. Type <kbd className="rounded border border-line px-1.5 font-mono text-xs">[@</kbd> or press{" "}
-            <kbd className="rounded border border-line px-1.5 font-mono text-xs">Ctrl/⌘ Shift K</kbd> while writing to cite a source from your library.
+            <kbd className="rounded border border-line px-1.5 font-mono text-xs">{mod} Shift K</kbd> while writing to cite a source from your library.
           </p>
         ) : (
           <>

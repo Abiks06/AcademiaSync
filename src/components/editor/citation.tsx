@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence } from "motion/react";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
 import { citationItems, citationMode } from "@/lib/library/citations";
@@ -51,7 +51,11 @@ function CitationView({ node, selected, editor, getPos }: NodeViewProps) {
   };
   const leave = () => {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setHovered(false), CLOSE_DELAY);
+    timer.current = setTimeout(() => {
+      setHovered(false);
+      // Escape hid the card for this hover; the next hover shows it again.
+      if (!selected) setDismissed(false);
+    }, CLOSE_DELAY);
   };
   useEffect(() => () => clearTimeout(timer.current), []);
   // Selecting the citation again shows the card again after Escape hid it.
@@ -61,18 +65,37 @@ function CitationView({ node, selected, editor, getPos }: NodeViewProps) {
     if (selected) setDismissed(false);
   }
   const open = (hovered || selected) && !dismissed && (sources.some(Boolean) || missing);
+  const cardId = useId();
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setDismissed(true);
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open]);
+    const onKey = (e: KeyboardEvent) => {
+      // Keys inside the card are the card's own business.
+      if (document.getElementById(cardId)?.contains(e.target as Node)) return;
+      if (e.key === "Escape") {
+        // Escape closes the card and nothing else (not follow mode, not a panel behind).
+        e.preventDefault();
+        e.stopPropagation();
+        setDismissed(true);
+      } else if (selected && editor.view.hasFocus() && ((e.key === "Tab" && !e.shiftKey) || e.key === "Enter")) {
+        // Keyboard users reach the card's links and buttons from the selected citation.
+        const first = document.getElementById(cardId)?.querySelector<HTMLElement>("a[href], button:not([disabled])");
+        if (!first) return;
+        e.preventDefault();
+        e.stopPropagation();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, selected, editor, cardId]);
 
   const onEdit =
     editCitation && editor.isEditable
       ? () => {
           const pos = getPos();
           setHovered(false);
+          // The picker takes over; the card stays shut until the citation is selected again.
+          setDismissed(true);
           if (typeof pos === "number") editCitation(pos);
         }
       : null;
@@ -91,13 +114,19 @@ function CitationView({ node, selected, editor, getPos }: NodeViewProps) {
       <AnimatePresence>
         {open && (
           <CitationCard
+            id={cardId}
             anchor={anchor}
+            editor={editor}
             sources={sources}
             missing={missing}
             projectId={projectId}
             onEdit={onEdit}
             onPointerEnter={() => clearTimeout(timer.current)}
             onPointerLeave={leave}
+            onEscape={() => {
+              setDismissed(true);
+              editor.commands.focus();
+            }}
           />
         )}
       </AnimatePresence>

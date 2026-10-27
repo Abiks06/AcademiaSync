@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useOthers, useSelf } from "@liveblocks/react/suspense";
 import { initials } from "@/components/app/accent";
 import { SPRING } from "@/components/motion/tokens";
-import { useFollow } from "./follow";
+import { FOLLOW_CONTROL, useFollow } from "./follow";
 
 const SHOWN = 5;
 
@@ -36,6 +36,7 @@ export function PresenceStack({ compact = false }: { compact?: boolean }) {
             <motion.button
               key={p.id}
               type="button"
+              {...{ [FOLLOW_CONTROL]: "" }}
               layout
               initial={{ opacity: 0, scale: 0.4, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}

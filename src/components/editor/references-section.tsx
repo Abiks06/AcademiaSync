@@ -28,7 +28,7 @@ export function ReferencesSection({ bib, style }: { bib: BibliographyState; styl
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="pl-8 -indent-8"
+              className="pl-8 -indent-8 [overflow-wrap:anywhere]"
               // Sanitised on the server to a few formatting tags without attributes.
               dangerouslySetInnerHTML={{ __html: entry.html }}
             />

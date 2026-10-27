@@ -1,10 +1,11 @@
 import { Extension } from "@tiptap/core";
 import { Plugin, PluginKey, type EditorState } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
-import { absolutePositionToRelativePosition, relativePositionToAbsolutePosition, ySyncPluginKey } from "y-prosemirror";
+import { relativePositionToAbsolutePosition, ySyncPluginKey } from "y-prosemirror";
 import type * as Y from "yjs";
 import { pastedIdentifier } from "@/lib/library/paste-identifier";
 import type { Identifier } from "@/lib/library/lookup";
+import { anchorBefore } from "./paste-anchor";
 
 type Pending = { id: string; text: string };
 /** `pos` follows this tab's own edits; `rel` is anchored in the shared document, so it survives co-authors' edits too. */
@@ -25,8 +26,8 @@ export type SmartPasteOptions = {
 function placeholder(text: string) {
   const el = document.createElement("span");
   el.className = "citation citation-pending";
-  el.setAttribute("role", "status");
-  el.setAttribute("aria-label", `Looking up ${text}`);
+  // The editor announces progress in its own status line, so screen readers skip this.
+  el.setAttribute("aria-hidden", "true");
   el.textContent = text.length > 28 ? `${text.slice(0, 26)}…` : text;
   return el;
 }
@@ -99,7 +100,7 @@ export const SmartPaste = Extension.create<SmartPasteOptions>({
             const y = sync(view.state);
             let rel: Y.RelativePosition | null = null;
             try {
-              rel = y?.binding ? absolutePositionToRelativePosition(pos, y.type, y.binding.mapping as never) : null;
+              rel = y?.binding ? anchorBefore(pos, y.type, y.doc, y.binding.mapping) : null;
             } catch {
               // Falls back to following this tab's edits only.
             }

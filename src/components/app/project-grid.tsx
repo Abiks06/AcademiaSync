@@ -160,13 +160,15 @@ function SampleButton() {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  // One sample however many times this is clicked.
+  const [requestId] = useState(() => crypto.randomUUID());
   return (
     <button
       disabled={busy}
       onClick={async () => {
         setBusy(true);
         try {
-          const result = await createSampleProject();
+          const result = await createSampleProject(requestId);
           if (result.ok) return router.push(result.href);
           toast({ tone: "error", title: "Couldn't create the sample project", description: result.error });
         } catch {
