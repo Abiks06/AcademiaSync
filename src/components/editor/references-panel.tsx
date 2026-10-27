@@ -113,7 +113,7 @@ export function ReferencesPanel({ bib, onClose, citedIds, citationCount, documen
       </div>
 
       {sources.length > 0 && (
-        <div className="flex gap-2 border-t border-line p-4">
+        <div className="clear-badge flex gap-2 border-t border-line p-4">
           <button onClick={() => void copyAll()} className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-sm font-semibold text-bg">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             {copied ? "Copied" : "Copy bibliography"}
