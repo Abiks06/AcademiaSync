@@ -1,7 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
+import { AnimatePresence, motion, useAnimate, useReducedMotion } from "motion/react";
 import { Eye, X } from "lucide-react";
 import { shallow, useOthers, useSelf, useUpdateMyPresence } from "@liveblocks/react/suspense";
 import type { Editor } from "@tiptap/react";
@@ -9,8 +9,26 @@ import { initials } from "@/components/app/accent";
 import { EXIT, SPRING } from "@/components/motion/tokens";
 import { useToast } from "@/components/ui/toast";
 
-type FollowCtx = { following: string | null; follow: (userId: string | null) => void };
-export const FollowContext = createContext<FollowCtx>({ following: null, follow: () => {} });
+type FollowCtx = {
+  following: string | null;
+  /** `from` is the avatar that was clicked; it flies into the "Following" pill. */
+  follow: (userId: string | null, from?: Element | null) => void;
+  /** Where the clicked avatar was when following started. */
+  flyFrom: DOMRect | null;
+};
+export const FollowContext = createContext<FollowCtx>({ following: null, follow: () => {}, flyFrom: null });
+
+/** Following state for the editor: who, and the avatar it started from. */
+export function useFollowState(): FollowCtx {
+  const [state, setState] = useState<{ id: string; from: DOMRect | null } | null>(null);
+  const follow = useCallback((userId: string | null, from?: Element | null) => {
+    setState(userId ? { id: userId, from: from?.getBoundingClientRect() ?? null } : null);
+  }, []);
+  return useMemo(() => ({ following: state?.id ?? null, follow, flyFrom: state?.from ?? null }), [state, follow]);
+}
+
+/** Sent when the person being followed jumps to another part of the manuscript. */
+const JUMP_EVENT = "academiasync:follow-jump";
 export const useFollow = () => useContext(FollowContext);
 
 /** How long someone can drop off (a flaky connection, a reload) before following them stops. */
@@ -155,6 +173,9 @@ export function useFollowScroll(editor: Editor | null) {
     const r = el.getBoundingClientRect();
     const max = document.documentElement.scrollHeight - window.innerHeight;
     const top = Math.max(0, Math.min(max, window.scrollY + r.top + offset * r.height - readingLine()));
+    // A big move (they jumped to another section) gets a pulse of the frame, so it's clear
+    // the page moved because of them.
+    if (Math.abs(top - window.scrollY) > window.innerHeight * 0.75) window.dispatchEvent(new Event(JUMP_EVENT));
     if (reduce) window.scrollTo({ top, behavior: "auto" });
     else goal.current = top;
   }, [editor, following, target, follow, toast, reduce]);
@@ -202,11 +223,20 @@ export function useFollowScroll(editor: Editor | null) {
 
 /** A frame in the followed person's colour around the window, and a pill saying who you're following. */
 export function FollowBanner() {
-  const { following, follow } = useFollow();
+  const { following, follow, flyFrom } = useFollow();
+  const reduce = useReducedMotion();
   const person = useOthers((others) => {
     const o = others.find((x) => x.id === following);
-    return o ? { name: o.info?.name ?? "Collaborator", color: o.info?.color ?? "var(--iris)" } : null;
+    return o ? { name: o.info?.name ?? "Collaborator", avatar: o.info?.avatar, color: o.info?.color ?? "var(--iris)" } : null;
   }, shallow);
+  // Bumped each time they jump somewhere new; each bump pulses the frame once.
+  const [jumps, setJumps] = useState(0);
+  useEffect(() => {
+    if (!following || reduce) return;
+    const onJump = () => setJumps((n) => n + 1);
+    window.addEventListener(JUMP_EVENT, onJump);
+    return () => window.removeEventListener(JUMP_EVENT, onJump);
+  }, [following, reduce]);
   return (
     <AnimatePresence>
       {following && person && (
@@ -220,7 +250,18 @@ export function FollowBanner() {
             transition={SPRING.smooth}
             className="pointer-events-none fixed inset-0 z-40 rounded-[18px]"
             style={{ boxShadow: `inset 0 0 0 3px ${person.color}, inset 0 0 60px -20px ${person.color}` }}
-          />
+          >
+            {jumps > 0 && (
+              <motion.div
+                key={jumps}
+                className="absolute inset-0 rounded-[18px]"
+                style={{ boxShadow: `inset 0 0 0 5px ${person.color}, inset 0 0 120px -10px ${person.color}` }}
+                initial={{ opacity: 1 }}
+                animate={{ opacity: 0 }}
+                transition={{ duration: 0.9, ease: "easeOut" }}
+              />
+            )}
+          </motion.div>
           <motion.div
             key="pill"
             role="status"
@@ -229,8 +270,9 @@ export function FollowBanner() {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, transition: EXIT }}
             transition={SPRING.smooth}
-            className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-line-strong bg-panel-solid/95 py-1.5 pr-1.5 pl-3.5 text-sm shadow-2xl backdrop-blur-xl"
+            className="fixed bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-line-strong bg-panel-solid/95 py-1.5 pr-1.5 pl-1.5 text-sm shadow-2xl backdrop-blur-xl"
           >
+            <PillAvatar key={following} name={person.name} avatar={person.avatar} color={person.color} from={reduce ? null : flyFrom} />
             <Eye className="h-4 w-4" style={{ color: person.color }} aria-hidden />
             <span>
               Following <b className="font-semibold">{person.name.split(" ")[0]}</b>
@@ -243,6 +285,39 @@ export function FollowBanner() {
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+/** The followed person's avatar in the pill. If following began from a click on their avatar, it flies here from there. */
+function PillAvatar({ name, avatar, color, from }: { name: string; avatar?: string; color: string; from: DOMRect | null }) {
+  const [scope, run] = useAnimate<HTMLSpanElement>();
+  // Only where following started, not when the pill re-renders.
+  const [start] = useState(from);
+  useLayoutEffect(() => {
+    const el = scope.current;
+    if (!start || !el) return;
+    // Measure where it really sits, without any flight already under way.
+    el.style.setProperty("transform", "none");
+    const to = el.getBoundingClientRect();
+    const dx = start.left + start.width / 2 - (to.left + to.width / 2);
+    const dy = start.top + start.height / 2 - (to.top + to.height / 2);
+    const flight = run(el, { x: [dx, 0], y: [dy, 0], scale: [start.width / to.width, 1] }, SPRING.smooth);
+    return () => flight.stop();
+  }, [start, scope, run]);
+  return (
+    <span
+      ref={scope}
+      aria-hidden
+      className="relative z-10 grid h-6 w-6 shrink-0 place-items-center overflow-hidden rounded-full text-[9px] font-semibold text-bg"
+      style={{ background: color }}
+    >
+      {avatar ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={avatar} alt="" className="h-full w-full object-cover" referrerPolicy="no-referrer" />
+      ) : (
+        initials(name)
+      )}
+    </span>
   );
 }
 
@@ -297,7 +372,7 @@ export function MarginPresence({ editor, container }: { editor: Editor | null; c
               key={p.id}
               type="button"
               {...{ [FOLLOW_CONTROL]: "" }}
-              onClick={() => follow(followed ? null : p.id)}
+              onClick={(e) => follow(followed ? null : p.id, e.currentTarget)}
               aria-pressed={followed}
               aria-label={followed ? `Stop following ${p.name}` : `${p.name} is here. Follow them`}
               title={followed ? `Following ${p.name}` : `${p.name} is here. Click to follow`}

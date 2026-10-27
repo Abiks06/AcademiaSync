@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { createPortal } from "react-dom";
-import { motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, useSpring, useTransform } from "motion/react";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
-import { SPRING } from "@/components/motion/tokens";
+import { EXIT, SPRING } from "@/components/motion/tokens";
 import { useModKey } from "@/components/app/command-palette";
 
 type Step = { target?: string; title: string; body: (mod: string) => string };
@@ -73,6 +73,17 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const reduce = useReducedMotion();
   const [steps] = useState(() => STEPS.filter((s) => !s.target || visible(document.querySelector(s.target))));
   const [index, setIndex] = useState(0);
+  // 1 going forward, -1 going back: the step's text slides in from that side.
+  const [dir, setDir] = useState(1);
+  const go = useCallback(
+    (to: number) => {
+      const target = Math.max(0, Math.min(to, steps.length - 1));
+      if (target === index) return;
+      setDir(target > index ? 1 : -1);
+      setIndex(target);
+    },
+    [index, steps.length],
+  );
   const [rect, setRect] = useState<DOMRect | null>(null);
   const next = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -124,8 +135,8 @@ export function Tour({ onClose }: { onClose: () => void }) {
     if (e.key === "Escape") {
       e.stopPropagation();
       finish();
-    } else if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, steps.length - 1));
-    else if (e.key === "ArrowLeft") setIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "ArrowRight") go(index + 1);
+    else if (e.key === "ArrowLeft") go(index - 1);
     else if (e.key === "Tab") {
       // Keep Tab inside the card while the rest of the page is dimmed.
       const focusable = [...(cardRef.current?.querySelectorAll<HTMLElement>("button:not([disabled])") ?? [])];
@@ -162,17 +173,61 @@ export function Tour({ onClose }: { onClose: () => void }) {
   const cardTop = !rect ? vh / 2 - cardH / 2 : below + cardH < vh - 12 ? below : above > 12 ? above : Math.max(12, vh - cardH - 24);
   const cardLeft = !rect ? vw / 2 - cardW / 2 : Math.max(12, Math.min(hole.left + hole.width / 2 - cardW / 2, vw - cardW - 12));
 
+  // The dimmed page is cut away around the spotlight with a clip path that glides from one
+  // part to the next. Cheaper to draw than a shadow the size of the screen.
+  const holeLeft = useSpring(hole.left, SPRING.gentle);
+  const holeTop = useSpring(hole.top, SPRING.gentle);
+  const holeWidth = useSpring(hole.width, SPRING.gentle);
+  const holeHeight = useSpring(hole.height, SPRING.gentle);
+  useEffect(() => {
+    const pairs = [
+      [holeLeft, hole.left],
+      [holeTop, hole.top],
+      [holeWidth, hole.width],
+      [holeHeight, hole.height],
+    ] as const;
+    for (const [value, to] of pairs) {
+      if (reduce) value.jump(to);
+      else value.set(to);
+    }
+  }, [hole.left, hole.top, hole.width, hole.height, reduce, holeLeft, holeTop, holeWidth, holeHeight]);
+  const clipPath = useTransform([holeLeft, holeTop, holeWidth, holeHeight], ([l, t, w, h]: number[]) => {
+    const r = Math.min(16, w / 2, h / 2);
+    const R = l + w;
+    const B = t + h;
+    const outer = `M0 0H${vw}V${vh}H0Z`;
+    const inner = `M${l + r} ${t}H${R - r}A${r} ${r} 0 0 1 ${R} ${t + r}V${B - r}A${r} ${r} 0 0 1 ${R - r} ${B}H${l + r}A${r} ${r} 0 0 1 ${l} ${B - r}V${t + r}A${r} ${r} 0 0 1 ${l + r} ${t}Z`;
+    return `path(evenodd, "${outer} ${inner}")`;
+  });
+
+  // The card's height glides as steps with more or less to say come and go.
+  const text = useRef<HTMLDivElement>(null);
+  const [textHeight, setTextHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = text.current;
+    if (!el) return;
+    const measure = () => setTextHeight(el.offsetHeight);
+    measure();
+    const resize = new ResizeObserver(measure);
+    resize.observe(el);
+    return () => resize.disconnect();
+  }, []);
+
   return createPortal(
     <div className="fixed inset-0 z-[55]" aria-live="polite">
       {/* Clicks outside the card do nothing, so a stray click can't skip the tour. */}
       <div className="absolute inset-0" />
+      <motion.div aria-hidden className="pointer-events-none absolute inset-0 bg-[var(--scrim)]" style={{ clipPath }} />
       <motion.div
         aria-hidden
         className="pointer-events-none absolute rounded-2xl"
-        initial={false}
-        animate={{ ...hole, opacity: 1 }}
-        transition={SPRING.gentle}
-        style={{ boxShadow: "0 0 0 200vmax var(--scrim), 0 0 0 2px var(--iris), 0 0 40px 4px color-mix(in oklab, var(--iris) 35%, transparent)" }}
+        style={{
+          left: holeLeft,
+          top: holeTop,
+          width: holeWidth,
+          height: holeHeight,
+          boxShadow: "0 0 0 2px var(--iris), 0 0 40px 4px color-mix(in oklab, var(--iris) 35%, transparent)",
+        }}
       />
       <motion.div
         ref={cardRef}
@@ -195,9 +250,28 @@ export function Tour({ onClose }: { onClose: () => void }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <motion.div key={index} initial={{ opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} transition={SPRING.snappy} className="grid gap-1.5">
-          <h2 id="tour-title" className="font-serif text-xl">{step.title}</h2>
-          <p className="text-sm leading-relaxed text-muted">{step.body(mod)}</p>
+        <motion.div initial={false} animate={{ height: textHeight ?? "auto" }} transition={SPRING.gentle} className="relative overflow-hidden">
+          <div ref={text}>
+            <AnimatePresence initial={false} mode="popLayout" custom={dir}>
+              <motion.div
+                key={index}
+                custom={dir}
+                variants={{
+                  enter: (d: number) => ({ opacity: 0, x: d * 12 }),
+                  shown: { opacity: 1, x: 0 },
+                  leave: (d: number) => ({ opacity: 0, x: d * -12, transition: EXIT }),
+                }}
+                initial="enter"
+                animate="shown"
+                exit="leave"
+                transition={SPRING.snappy}
+                className="grid gap-1.5"
+              >
+                <h2 id="tour-title" className="font-serif text-xl">{step.title}</h2>
+                <p className="text-sm leading-relaxed text-muted">{step.body(mod)}</p>
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </motion.div>
         <div className="mt-1 flex items-center gap-2">
           <div className="flex gap-1" aria-hidden>
@@ -206,13 +280,13 @@ export function Tour({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           {index > 0 && (
-            <button onClick={() => setIndex(index - 1)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted transition-colors hover:text-ink">
+            <button onClick={() => go(index - 1)} className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm text-muted transition-colors hover:text-ink">
               <ArrowLeft className="h-3.5 w-3.5" /> Back
             </button>
           )}
           <button
             ref={next}
-            onClick={() => (index === steps.length - 1 ? finish() : setIndex(index + 1))}
+            onClick={() => (index === steps.length - 1 ? finish() : go(index + 1))}
             className={`${index > 0 ? "" : "ml-auto"} inline-flex items-center gap-1 rounded-full bg-ink px-4 py-1.5 text-sm font-semibold text-bg`}
           >
             {index === steps.length - 1 ? "Start writing" : "Next"} {index < steps.length - 1 && <ArrowRight className="h-3.5 w-3.5" />}

@@ -3,12 +3,12 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { AlertTriangle, BookMarked, Check, Copy, ExternalLink, Pencil } from "lucide-react";
 import { formatReference } from "@/lib/library/format";
 import { KIND_LABEL, type Source } from "@/lib/library/types";
 import { sourceDetails, type SourceDetailsResult } from "@/app/(app)/projects/[projectId]/library/actions";
-import { SPRING } from "@/components/motion/tokens";
+import { DURATION, EXIT, SPRING } from "@/components/motion/tokens";
 import type { Editor } from "@tiptap/react";
 
 type Details = Extract<SourceDetailsResult, { ok: true }>;
@@ -72,7 +72,12 @@ export function CitationCard({
   onEscape: () => void;
 }) {
   const card = useRef<HTMLDivElement>(null);
-  const [place, setPlace] = useState<{ left: number; top: number; below: boolean; originX: number } | null>(null);
+  const content = useRef<HTMLDivElement>(null);
+  // Where the card's edge facing the citation sits (its top when below, its bottom when
+  // above), so a growing card grows away from the citation.
+  const [place, setPlace] = useState<{ left: number; edge: number; below: boolean; originX: number } | null>(null);
+  // The height the card is gliding to: its content's, up to the cap.
+  const [height, setHeight] = useState<number | null>(null);
 
   useLayoutEffect(() => {
     // The side the card first opens on, kept while it's open so it doesn't jump from
@@ -84,15 +89,18 @@ export function CitationCard({
       const r = el.getBoundingClientRect();
       const width = Math.min(WIDTH, window.innerWidth - 24);
       const left = Math.max(12, Math.min(r.left + r.width / 2 - width / 2, window.innerWidth - width - 12));
-      const height = card.current?.offsetHeight ?? 220;
+      const cap = Math.min(window.innerHeight * 0.7, 512);
+      // Content plus the 1px border on each side.
+      const height = Math.min((content.current?.offsetHeight ?? 218) + 2, cap);
       side ??= r.bottom + GAP + height < window.innerHeight - 12 || r.top - GAP - height < 12;
       const below = side;
-      setPlace({ left, top: below ? r.bottom + GAP : r.top - GAP - height, below, originX: r.left + r.width / 2 - left });
+      setHeight(height);
+      setPlace({ left, edge: below ? r.bottom + GAP : window.innerHeight - r.top + GAP, below, originX: r.left + r.width / 2 - left });
     };
     measure();
-    // The abstract arrives after the card opens and changes its height.
+    // The abstract arrives after the card opens, and the card grows to fit it.
     const resize = new ResizeObserver(measure);
-    if (card.current) resize.observe(card.current);
+    if (content.current) resize.observe(content.current);
     window.addEventListener("scroll", measure, { passive: true, capture: true });
     window.addEventListener("resize", measure);
     editor.on("update", measure);
@@ -126,41 +134,43 @@ export function CitationCard({
       onKeyDown={onKeyDown}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
-      initial={{ opacity: 0, scale: 0.92, y: place?.below === false ? 6 : -6 }}
-      animate={{ opacity: place ? 1 : 0, scale: 1, y: 0 }}
+      initial={{ opacity: 0, scale: 0.92, y: place?.below === false ? 6 : -6, height: height ?? "auto" }}
+      animate={{ opacity: place ? 1 : 0, scale: 1, y: 0, height: height ?? "auto" }}
       exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.1 } }}
-      transition={SPRING.snappy}
-      className="fixed z-50 max-h-[min(70dvh,32rem)] overflow-y-auto rounded-2xl border border-line-strong bg-panel-solid shadow-[0_30px_80px_-30px_rgb(0_0_0/0.7)]"
+      transition={{ ...SPRING.snappy, height: SPRING.gentle }}
+      className="fixed z-50 max-h-[min(70dvh,32rem)] overflow-y-auto overscroll-contain rounded-2xl border border-line-strong bg-panel-solid shadow-[0_30px_80px_-30px_rgb(0_0_0/0.7)]"
       style={{
         width: Math.min(WIDTH, typeof window === "undefined" ? WIDTH : window.innerWidth - 24),
         left: place?.left ?? -9999,
-        top: place?.top ?? 0,
+        ...(place?.below === false ? { bottom: place.edge } : { top: place?.edge ?? 0 }),
         transformOrigin: `${place?.originX ?? WIDTH / 2}px ${place?.below === false ? "100%" : "0%"}`,
       }}
     >
-      {missing && (
-        <p className="flex items-start gap-2 border-b border-line px-4 py-3 text-sm text-danger">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />A source cited here isn&apos;t in this project&apos;s library any more.
-        </p>
-      )}
-      {shown.map((s, i) => (
-        <SourceBlock key={s.id} source={s} projectId={projectId} divider={i > 0 || missing} />
-      ))}
-      {known.length > shown.length && (
-        <p className="border-t border-line px-4 py-2.5 text-xs text-faint">and {known.length - shown.length} more in this citation</p>
-      )}
-      {onEdit && (
-        <div className="border-t border-line p-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm text-muted transition-colors hover:bg-iris-soft hover:text-ink"
-          >
-            <Pencil className="h-3.5 w-3.5" aria-hidden /> Change this citation
-            <span className="ml-auto font-mono text-[10px] text-faint">add a page, more sources</span>
-          </button>
-        </div>
-      )}
+      <div ref={content}>
+        {missing && (
+          <p className="flex items-start gap-2 border-b border-line px-4 py-3 text-sm text-danger">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />A source cited here isn&apos;t in this project&apos;s library any more.
+          </p>
+        )}
+        {shown.map((s, i) => (
+          <SourceBlock key={s.id} source={s} projectId={projectId} divider={i > 0 || missing} />
+        ))}
+        {known.length > shown.length && (
+          <p className="border-t border-line px-4 py-2.5 text-xs text-faint">and {known.length - shown.length} more in this citation</p>
+        )}
+        {onEdit && (
+          <div className="border-t border-line p-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm text-muted transition-colors hover:bg-iris-soft hover:text-ink"
+            >
+              <Pencil className="h-3.5 w-3.5" aria-hidden /> Change this citation
+              <span className="ml-auto font-mono text-[10px] text-faint">add a page, more sources</span>
+            </button>
+          </div>
+        )}
+      </div>
     </motion.div>,
     document.body,
   );
@@ -192,7 +202,7 @@ function SourceBlock({ source: s, projectId, divider }: { source: Source; projec
   };
 
   return (
-    <div className={`grid gap-2 px-4 py-3.5 ${divider ? "border-t border-line" : ""}`}>
+    <div className={`relative grid gap-2 px-4 py-3.5 ${divider ? "border-t border-line" : ""}`}>
       <p className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
         {KIND_LABEL[s.kind]}
         {s.year && <span className="text-iris">{s.year}</span>}
@@ -202,14 +212,21 @@ function SourceBlock({ source: s, projectId, divider }: { source: Source; projec
       {authors && <p className="text-xs text-muted">{authors}</p>}
       {where && <p className="text-xs italic text-faint">{where}</p>}
 
-      {info === undefined ? (
-        <div className="grid gap-1.5" aria-hidden>
-          <div className="shimmer h-2.5 w-full rounded-full bg-line" />
-          <div className="shimmer h-2.5 w-4/5 rounded-full bg-line" />
-        </div>
-      ) : (
-        info?.abstract && <p className="line-clamp-4 text-[13px] leading-relaxed text-muted">{info.abstract}</p>
-      )}
+      {/* The shimmer fades into the abstract while the card grows to fit it. */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {info === undefined ? (
+          <motion.div key="loading" exit={{ opacity: 0, transition: EXIT }} className="grid gap-1.5" aria-hidden>
+            <div className="shimmer h-2.5 w-full rounded-full bg-line" />
+            <div className="shimmer h-2.5 w-4/5 rounded-full bg-line" />
+          </motion.div>
+        ) : (
+          info?.abstract && (
+            <motion.p key="abstract" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: DURATION.base }} className="line-clamp-4 text-[13px] leading-relaxed text-muted">
+              {info.abstract}
+            </motion.p>
+          )
+        )}
+      </AnimatePresence>
       {s.notes && (
         <p className="rounded-xl border border-amber/25 bg-amber/10 px-3 py-2 text-[13px] leading-relaxed text-ink">
           <span className="mb-0.5 block font-mono text-[10px] uppercase tracking-[0.14em] text-amber">Team notes</span>

@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
 import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search, X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
-import { SPRING } from "@/components/motion/tokens";
+import { EXIT, SPRING } from "@/components/motion/tokens";
 import { paletteIndex, type PaletteIndex } from "@/app/(app)/palette-actions";
 import { createSampleProject } from "@/app/(app)/projects/sample-actions";
 import { rank } from "@/lib/palette/match";
@@ -117,6 +117,15 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
+  const listContent = useRef<HTMLDivElement>(null);
+  const [listHeight, setListHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = listContent.current;
+    if (!el) return;
+    const resize = new ResizeObserver(() => setListHeight(el.offsetHeight));
+    resize.observe(el);
+    return () => resize.disconnect();
+  }, []);
   const listId = useId();
   // One sample project per opening of the palette, however many times it's chosen.
   const [sampleRequest] = useState(() => crypto.randomUUID());
@@ -297,9 +306,10 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
     item.run();
   };
 
+  const currentKey = flat[current]?.key;
   useEffect(() => {
-    list.current?.querySelector(`[data-index="${current}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [current]);
+    if (currentKey) list.current?.querySelector(`[data-key="${CSS.escape(currentKey)}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [currentKey]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
@@ -332,7 +342,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
             role="combobox"
             aria-expanded="true"
             aria-controls={listId}
-            aria-activedescendant={flat[current] ? `${listId}-${current}` : undefined}
+            aria-activedescendant={flat[current] ? `${listId}-${flat[current].key}` : undefined}
             autoComplete="off"
             spellCheck={false}
             className="h-14 min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none placeholder:text-faint"
@@ -344,54 +354,81 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
           </button>
         </div>
 
-        <div ref={list} id={listId} role="listbox" aria-label="Results" className="max-h-[min(60dvh,28rem)] overflow-y-auto overscroll-contain p-2">
-          {shown.map(([group, list]) => (
-            <div key={group} role="group" aria-label={group} className="mb-1">
-              <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">{group === "Here" ? "On this page" : group}</p>
-              {list.map((item) => {
-                const i = position.get(item.key) ?? 0;
-                const isActive = i === current;
-                return (
-                  <motion.div
-                    key={item.key}
-                    id={`${listId}-${i}`}
-                    data-index={i}
-                    role="option"
-                    aria-selected={isActive}
-                    aria-disabled={busy ? true : undefined}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ ...SPRING.snappy, delay: query ? 0 : Math.min(i, 10) * 0.015 }}
-                    onPointerMove={() => !isActive && setActive(i)}
-                    onClick={() => run(item)}
-                    className="relative flex cursor-pointer items-center aria-disabled:cursor-wait gap-3 rounded-xl px-3 py-2.5 text-sm"
-                  >
-                    {isActive && <motion.span layoutId="palette-active" transition={SPRING.snappy} className="absolute inset-0 rounded-xl bg-iris-soft" />}
-                    <span className={`relative grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line ${isActive ? "text-iris" : "text-muted"}`}>
-                      {busy && item.key === busy ? <Loader2 className="h-4 w-4 animate-spin" /> : item.icon}
-                    </span>
-                    <span className="relative min-w-0 flex-1">
-                      <span className="block truncate text-ink">{item.label}</span>
-                      {item.hint && <span className="block truncate text-xs text-faint">{item.hint}</span>}
-                    </span>
-                    {isActive && <CornerDownLeft className="relative h-3.5 w-3.5 shrink-0 text-iris" aria-hidden />}
-                  </motion.div>
-                );
-              })}
-            </div>
-          ))}
-          {flat.length === 0 &&
-            (!index && !loadError ? (
-              <p role="status" className="px-3 py-10 text-center text-sm text-muted">
-                Searching…
-              </p>
-            ) : (
-              <p className="px-3 py-10 text-center text-sm text-muted">
-                Nothing matches “{query}”. Try a title, an author&apos;s surname or a project name.
-              </p>
-            ))}
-          {loadError && <p role="alert" className="px-3 pb-2 text-xs text-amber">{loadError}</p>}
-        </div>
+        {/* The list's height follows its results, so filtering reads as the list breathing in. */}
+        <motion.div
+          ref={list}
+          id={listId}
+          role="listbox"
+          aria-label="Results"
+          initial={false}
+          animate={{ height: listHeight ?? "auto" }}
+          transition={SPRING.gentle}
+          className="max-h-[min(60dvh,28rem)] overflow-y-auto overscroll-contain"
+        >
+          <div ref={listContent} className="p-2">
+            <AnimatePresence initial={false}>
+              {shown.map(([group, list]) => (
+                <motion.div
+                  key={group}
+                  role="group"
+                  aria-label={group}
+                  className="mb-1 overflow-hidden"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0, transition: EXIT }}
+                  transition={SPRING.snappy}
+                >
+                  <p className="px-3 pt-2 pb-1 font-mono text-[10px] uppercase tracking-[0.16em] text-faint">{group === "Here" ? "On this page" : group}</p>
+                  <AnimatePresence initial={false}>
+                    {list.map((item) => {
+                      const i = position.get(item.key) ?? 0;
+                      const isActive = i === current;
+                      return (
+                        <motion.div
+                          key={item.key}
+                          id={`${listId}-${item.key}`}
+                          data-key={item.key}
+                          role="option"
+                          aria-selected={isActive}
+                          aria-disabled={busy ? true : undefined}
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0, height: "auto" }}
+                          // Rows that stop matching fold away instead of vanishing.
+                          exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: EXIT }}
+                          transition={{ ...SPRING.snappy, delay: query ? 0 : Math.min(i, 10) * 0.015 }}
+                          onPointerMove={() => !isActive && setActive(i)}
+                          onClick={() => run(item)}
+                          className="relative flex cursor-pointer items-center gap-3 overflow-hidden aria-disabled:cursor-wait rounded-xl px-3 py-2.5 text-sm"
+                        >
+                          {isActive && <motion.span layoutId="palette-active" transition={SPRING.snappy} className="absolute inset-0 rounded-xl bg-iris-soft" />}
+                          <span className={`relative grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-line ${isActive ? "text-iris" : "text-muted"}`}>
+                            {busy && item.key === busy ? <Loader2 className="h-4 w-4 animate-spin" /> : item.icon}
+                          </span>
+                          <span className="relative min-w-0 flex-1">
+                            <span className="block truncate text-ink">{item.label}</span>
+                            {item.hint && <span className="block truncate text-xs text-faint">{item.hint}</span>}
+                          </span>
+                          {isActive && <CornerDownLeft className="relative h-3.5 w-3.5 shrink-0 text-iris" aria-hidden />}
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            {flat.length === 0 &&
+              (!index && !loadError ? (
+                <p role="status" className="px-3 py-10 text-center text-sm text-muted">
+                  Searching…
+                </p>
+              ) : (
+                <p className="px-3 py-10 text-center text-sm text-muted">
+                  Nothing matches “{query}”. Try a title, an author&apos;s surname or a project name.
+                </p>
+              ))}
+            {loadError && <p role="alert" className="px-3 pb-2 text-xs text-amber">{loadError}</p>}
+          </div>
+        </motion.div>
 
         <div className="hidden items-center gap-4 border-t border-line px-4 py-2 font-mono text-[10px] text-faint sm:flex">
           <span>↑↓ to move</span>
