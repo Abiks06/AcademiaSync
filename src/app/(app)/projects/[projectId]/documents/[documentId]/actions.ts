@@ -7,6 +7,7 @@ import { AuthUnavailableError } from "@/lib/supabase/auth-errors";
 import { userColor } from "@/lib/liveblocks/rooms";
 import { restoreVersion, saveLiveDocument } from "@/lib/documents/live-document";
 import { isLiveblocksConfigured } from "@/lib/liveblocks/server";
+import { dbErrorMessage } from "@/lib/supabase/db-errors";
 import { isRestorable } from "@/lib/editor/ydoc";
 
 export type ActionResult = { ok: true; savedVersionId?: string | null } | { ok: false; error: string };
@@ -46,7 +47,7 @@ export async function updateDocumentDetails(input: z.input<typeof detailsSchema>
     .eq("id", documentId)
     .select("project_id")
     .maybeSingle();
-  if (error) return { ok: false, error: `Couldn't save: ${error.message}` };
+  if (error) return { ok: false, error: dbErrorMessage(error, "save") };
   // No row back means row-level security refused the change.
   if (!data) return { ok: false, error: "You don't have permission to change this manuscript." };
 
@@ -166,7 +167,7 @@ export async function listVersions(documentId: string): Promise<{ versions: Vers
     .eq("document_id", documentId)
     .order("created_at", { ascending: false })
     .limit(30);
-  if (error) return { versions: [], error: `Couldn't load history: ${error.message}` };
+  if (error) return { versions: [], error: dbErrorMessage(error, "load history") };
 
   const authorIds = [...new Set((data ?? []).map((v) => v.created_by).filter((id): id is string => !!id))];
   const { data: profiles } = authorIds.length

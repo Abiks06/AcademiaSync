@@ -90,6 +90,7 @@ export type DocumentState = {
   /** bytea, sent and received as a "\\x…" hex string. */
   ydoc: string;
   plain_text: string;
+  revision: number;
   updated_at: string;
 };
 
@@ -151,6 +152,7 @@ export type Database = {
           p_label?: string | null;
           p_created_by?: string | null;
           p_min_gap?: string | null;
+          p_base_revision?: number | null;
         };
         Returns: string | null;
       };
@@ -158,7 +160,7 @@ export type Database = {
         Args: Omit<Database["public"]["Functions"]["save_document_state"]["Args"], "p_created_by">;
         Returns: string | null;
       };
-      member_document_state: { Args: { p_document: string }; Returns: string | null };
+      member_document_state: { Args: { p_document: string }; Returns: { ydoc: string; revision: number }[] };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };
     CompositeTypes: { [_ in never]: never };

@@ -36,9 +36,11 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/d
 
   // In order of first citation, which numeric styles number by.
   const ids = [...citationCounts(manuscript.json).keys()];
-  const { data: rows } = ids.length
+  const { data: rows, error: sourcesError } = ids.length
     ? await supabase.from("sources").select(SOURCE_COLUMNS).eq("project_id", document.project_id).in("id", ids)
-    : { data: [] };
+    : { data: [], error: null };
+  // Better no file than one that quietly lacks its references.
+  if (sourcesError) return NextResponse.json({ error: "Couldn't read the references right now. Try again in a moment." }, { status: 503 });
   const byId = new Map((rows ?? []).map((r) => [r.id, { ...r, abstract: null, authors: sanitizeAuthors(r.authors) } as Source]));
   const ctx = citeContext(style, ids, (id) => byId.get(id));
   const cited = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));

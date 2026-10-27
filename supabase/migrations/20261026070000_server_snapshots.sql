@@ -8,6 +8,9 @@ create table public.document_state (
   document_id uuid primary key references public.documents (id) on delete cascade,
   ydoc bytea not null,
   plain_text text not null default '' check (char_length(plain_text) <= 2000000),
+  -- Goes up by one on every save. A save names the revision it merged with, so an older
+  -- snapshot can never be written over a newer one.
+  revision bigint not null default 1,
   updated_at timestamptz not null default now()
 );
 alter table public.document_state enable row level security;
@@ -30,13 +33,14 @@ create policy "Members read citations" on public.document_citations for select t
     select 1 from public.documents d where d.id = document_id and (select public.is_project_member(d.project_id))
   ));
 
--- History is written by the server from the live document, never by browsers.
-revoke insert on public.document_versions from anon, authenticated;
-drop policy "Editors save versions" on public.document_versions;
+-- History is written by the server from the live document, never by browsers. Browser
+-- inserts are switched off in 20261027110000, after the code that no longer needs them is
+-- live, so the site keeps saving versions during the deploy.
 
 -- Stores the latest state, refreshes the citation index and, when asked, adds a version.
 -- One transaction per document at a time, so two webhook deliveries can't both add an
--- automatic version. p_min_gap set means "automatic": skip the version if nothing changed
+-- automatic version. p_base_revision is the revision the caller read and merged with (null
+-- when there was none); if someone saved since, this raises 40001 and the caller merges again. p_min_gap set means "automatic": skip the version if nothing changed
 -- or the last one is newer than the gap. Returns the new version's id, or null.
 create or replace function public.save_document_state(
   p_document uuid,
@@ -46,7 +50,8 @@ create or replace function public.save_document_state(
   p_version_content jsonb default null,
   p_label text default null,
   p_created_by uuid default null,
-  p_min_gap interval default null
+  p_min_gap interval default null,
+  p_base_revision bigint default null
 )
 returns uuid
 language plpgsql
@@ -58,19 +63,34 @@ declare
 begin
   perform pg_advisory_xact_lock(hashtextextended(p_document::text, 0));
 
+  if p_base_revision is distinct from (select revision from public.document_state where document_id = p_document) then
+    raise exception 'The manuscript was saved by someone else meanwhile.' using errcode = '40001';
+  end if;
+
   insert into public.document_state (document_id, ydoc, plain_text, updated_at)
   values (p_document, p_ydoc, p_plain_text, now())
-  on conflict (document_id) do update set ydoc = excluded.ydoc, plain_text = excluded.plain_text, updated_at = now();
+  on conflict (document_id) do update
+    set ydoc = excluded.ydoc, plain_text = excluded.plain_text, revision = document_state.revision + 1, updated_at = now();
 
   -- Only sources of the manuscript's own project are indexed; a citation pasted from
   -- another project is left out.
   delete from public.document_citations where document_id = p_document;
+  -- Ids and counts come from the shared document, which any editor can write, so anything
+  -- malformed is skipped rather than allowed to make every save fail.
   insert into public.document_citations (document_id, source_id, citations)
-  select p_document, s.id, (c ->> 'count')::integer
-  from jsonb_array_elements(coalesce(p_citations, '[]'::jsonb)) c
-  join public.sources s on s.id = (c ->> 'sourceId')::uuid
+  select p_document, s.id, least(sum(c.citations), 1000000)::integer
+  from (
+    select
+      case when e ->> 'sourceId' ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+        then (e ->> 'sourceId')::uuid end as source_id,
+      case when jsonb_typeof(e -> 'count') = 'number' and (e ->> 'count') ~ '^[0-9]{1,6}$'
+        then (e ->> 'count')::integer end as citations
+    from jsonb_array_elements(case when jsonb_typeof(p_citations) = 'array' then p_citations else '[]'::jsonb end) e
+  ) c
+  join public.sources s on s.id = c.source_id
   join public.documents d on d.id = p_document and d.project_id = s.project_id
-  where (c ->> 'count')::integer > 0;
+  where c.citations > 0
+  group by s.id;
 
   if p_version_content is null then
     return null;
@@ -92,5 +112,5 @@ begin
 end;
 $$;
 
-revoke execute on function public.save_document_state(uuid, bytea, text, jsonb, jsonb, text, uuid, interval) from public, anon, authenticated;
-grant execute on function public.save_document_state(uuid, bytea, text, jsonb, jsonb, text, uuid, interval) to service_role;
+revoke execute on function public.save_document_state(uuid, bytea, text, jsonb, jsonb, text, uuid, interval, bigint) from public, anon, authenticated;
+grant execute on function public.save_document_state(uuid, bytea, text, jsonb, jsonb, text, uuid, interval, bigint) to service_role;

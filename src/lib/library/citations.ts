@@ -11,7 +11,7 @@ export type CitationItem = { sourceId: string; locator?: string; prefix?: string
 /** "(Lusher, 2017)" is parenthetical; "Lusher (2017)" is narrative. */
 export type CitationMode = "parenthetical" | "narrative";
 
-const UUIDISH = /^[0-9a-f-]{8,64}$/i;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function text(value: unknown, max: number) {
   return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : undefined;
@@ -26,7 +26,7 @@ export function citationItems(attrs: Record<string, unknown>): CitationItem[] {
   return raw.slice(0, 20).flatMap((item) => {
     if (typeof item !== "object" || item === null) return [];
     const { sourceId, locator, prefix, suffix } = item as Record<string, unknown>;
-    if (typeof sourceId !== "string" || !UUIDISH.test(sourceId)) return [];
+    if (typeof sourceId !== "string" || !UUID.test(sourceId)) return [];
     const clean: CitationItem = { sourceId };
     const l = text(locator, 40);
     const p = text(prefix, 60);

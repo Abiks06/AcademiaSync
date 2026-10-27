@@ -151,7 +151,10 @@ export function toMarkdown(input: ExportInput) {
         if (node.type === "hardBreak") return "  \n";
         if (node.type === CITATION_NODE) return input.citationLabel(node.attrs ?? {});
         if (node.type !== "text") return inline(node.content);
-        let text = (node.text ?? "").replace(/([\\`*_[\]#])/g, "\\$1");
+        let text = (node.text ?? "")
+          .replace(/([\\`*_[\]#])/g, "\\$1")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;");
         const marks = new Set((node.marks ?? []).map((m) => m.type));
         if (marks.has("code")) text = `\`${node.text}\``;
         if (marks.has("bold")) text = `**${text}**`;

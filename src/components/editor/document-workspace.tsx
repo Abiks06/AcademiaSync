@@ -13,6 +13,7 @@ import {
   LiveblocksProvider,
   RoomProvider,
   useErrorListener,
+  useClient,
   useEventListener,
   useOthers,
   useRoom,
@@ -24,6 +25,8 @@ import { AnchoredThreads, FloatingComposer, FloatingThreads, FloatingToolbar, To
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
+import type { Transaction } from "@tiptap/pm/state";
+import { ySyncPluginKey } from "y-prosemirror";
 import { roomIdFor } from "@/lib/liveblocks/rooms";
 import type { DocumentStatus } from "@/lib/supabase/types";
 import { accentColor } from "@/components/app/accent";
@@ -217,7 +220,9 @@ type PickerState = { mode: "closed" } | { mode: "pick"; initial?: { items: Citat
 function Workspace({ document, project, canEdit, sources: initialSources, onOpened }: WorkspaceProps & { onOpened: () => void }) {
   const accent = accentColor(project.accent);
   const room = useRoom();
-  const liveblocks = useLiveblocksExtension({ field: "manuscript" });
+  // Mentions are off: their nodes aren't in the manuscript schema, so versions holding them
+  // couldn't be restored. Offline support keeps unsynced edits in the browser (IndexedDB).
+  const liveblocks = useLiveblocksExtension({ field: "manuscript", mentions: false, offlineSupport_experimental: true });
   const [words, setWords] = useState(0);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [referencesOpen, setReferencesOpen] = useState(false);
@@ -253,8 +258,11 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   // An owner changed someone's access: get a fresh token (which fails if it was ours that
   // was removed) and reload the page data, so a new role takes effect straight away.
   const router = useRouter();
+  const client = useClient();
   useEventListener(({ event }) => {
     if (event.type !== "access-changed") return;
+    // logout() drops the cached token, so reconnecting has to ask the server again.
+    client.logout();
     room.reconnect();
     router.refresh();
   });
@@ -330,10 +338,12 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       });
     countWords();
     countCitations();
-    const onUpdate = () => {
+    const onUpdate = ({ transaction }: { transaction: Transaction }) => {
       countWords();
       countCitations();
-      if (!canEdit) return;
+      // Only this person's own typing asks the server to save; a collaborator's change
+      // reaches the server through their own editor.
+      if (!canEdit || transaction.getMeta(ySyncPluginKey)) return;
       clearTimeout(idle.current);
       idle.current = setTimeout(async () => {
         try {

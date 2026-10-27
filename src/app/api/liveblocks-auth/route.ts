@@ -55,7 +55,8 @@ export async function POST(request: NextRequest) {
 
   const session = getLiveblocks().prepareSession(user.id, {
     userInfo: {
-      name: profile?.full_name ?? user.email ?? "Collaborator",
+      // Never the email address: everyone in the room would see it.
+      name: profile?.full_name ?? "Collaborator",
       avatar: profile?.avatar_url ?? undefined,
       color: userColor(user.id),
     },

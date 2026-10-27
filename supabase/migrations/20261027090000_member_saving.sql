@@ -16,7 +16,8 @@ create or replace function public.member_save_document_state(
   p_citations jsonb,
   p_version_content jsonb default null,
   p_label text default null,
-  p_min_gap interval default null
+  p_min_gap interval default null,
+  p_base_revision bigint default null
 )
 returns uuid
 language plpgsql
@@ -34,13 +35,13 @@ begin
     raise exception 'This manuscript is too large to save.' using errcode = '54000';
   end if;
   return public.save_document_state(
-    p_document, p_ydoc, left(p_plain_text, 2000000), p_citations, p_version_content, p_label, (select auth.uid()), p_min_gap
+    p_document, p_ydoc, left(p_plain_text, 2000000), p_citations, p_version_content, p_label, (select auth.uid()), p_min_gap, p_base_revision
   );
 end;
 $$;
 
 create or replace function public.member_document_state(p_document uuid)
-returns bytea
+returns table (ydoc bytea, revision bigint)
 language plpgsql
 stable
 security definer
@@ -53,11 +54,11 @@ begin
   if v_project is null or not public.is_project_member(v_project) then
     raise exception 'You can''t read this manuscript.' using errcode = '42501';
   end if;
-  return (select ydoc from public.document_state where document_id = p_document);
+  return query select s.ydoc, s.revision from public.document_state s where s.document_id = p_document;
 end;
 $$;
 
-revoke execute on function public.member_save_document_state(uuid, bytea, text, jsonb, jsonb, text, interval) from public, anon;
+revoke execute on function public.member_save_document_state(uuid, bytea, text, jsonb, jsonb, text, interval, bigint) from public, anon;
 revoke execute on function public.member_document_state(uuid) from public, anon;
-grant execute on function public.member_save_document_state(uuid, bytea, text, jsonb, jsonb, text, interval) to authenticated;
+grant execute on function public.member_save_document_state(uuid, bytea, text, jsonb, jsonb, text, interval, bigint) to authenticated;
 grant execute on function public.member_document_state(uuid) to authenticated;

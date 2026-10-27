@@ -209,7 +209,7 @@ describe("profiles", () => {
 describe("server-side document state", () => {
   const save = (doc: string, citations: unknown[], version?: { content?: unknown; label?: string; by?: string; gap?: string }) =>
     db.asService<{ id: string | null }>(
-      "select public.save_document_state($1, '\\x0102'::bytea, $2, $3, $4, $5, $6, $7::interval) as id",
+      "select public.save_document_state($1, '\\x0102'::bytea, $2, $3, $4, $5, $6, $7::interval, (select revision from public.document_state where document_id = $1)) as id",
       [doc, version?.label ?? "text", JSON.stringify(citations), version?.content === undefined ? null : JSON.stringify(version.content), version?.label ?? null, version?.by ?? null, version?.gap ?? null],
     );
 
@@ -249,6 +249,25 @@ describe("server-side document state", () => {
     expect(rows).toEqual([{ label: "Draft 1", created_by: ben }]);
   });
 
+  it("skips malformed citation ids instead of failing the save", async () => {
+    const doc = await db.document(projectId, ada);
+    await save(doc, [{ sourceId: "deadbeef", count: 1 }, { sourceId: "--------", count: "x" }, "junk"]);
+    const { rows } = await db.admin("select 1 from public.document_state where document_id = $1", [doc]);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("refuses a save based on an older revision", async () => {
+    const doc = await db.document(projectId, ada);
+    const write = (base: number | null) =>
+      db.asService("select public.save_document_state($1, '\\x01'::bytea, '', '[]'::jsonb, null, null, null, null, $2::bigint)", [doc, base]);
+    await write(null);
+    await write(1);
+    await expectCode(write(1), "40001");
+    await expectCode(write(null), "40001");
+    const { rows } = await db.admin<{ revision: string }>("select revision from public.document_state where document_id = $1", [doc]);
+    expect(Number(rows[0].revision)).toBe(2);
+  });
+
   it("refuses versions written by browsers", async () => {
     await expectCode(
       db.as(ada, "insert into public.document_versions (document_id, content, plain_text) values ($1, '{}', 'forged')", [documentId]),
@@ -271,14 +290,14 @@ describe("saving as the signed-in person", () => {
     expect(saved.rows[0].id).toBeTruthy();
     const { rows } = await db.as<{ label: string; created_by: string }>(dee, "select label, created_by from public.document_versions where document_id = $1", [doc]);
     expect(rows).toEqual([{ label: "By Cy", created_by: cy }]);
-    const state = await db.as<{ ydoc: string }>(dee, "select encode(public.member_document_state($1), 'hex') as ydoc", [doc]);
+    const state = await db.as<{ ydoc: string }>(dee, "select encode(ydoc, 'hex') as ydoc from public.member_document_state($1)", [doc]);
     expect(state.rows[0].ydoc).toBe("0a0b");
   });
 
   it("refuses commenters and outsiders", async () => {
     await expectCode(memberSave(dee, documentId), PG.insufficientPrivilege);
     await expectCode(memberSave(eve, documentId), PG.insufficientPrivilege);
-    await expectCode(db.as(eve, "select public.member_document_state($1)", [documentId]), PG.insufficientPrivilege);
+    await expectCode(db.as(eve, "select * from public.member_document_state($1)", [documentId]), PG.insufficientPrivilege);
   });
 
   it("refuses an unknown document", async () => {
@@ -305,5 +324,17 @@ describe("invite links", () => {
     expect(member.rows).toEqual([{ role: "commenter" }]);
     const again = await db.as(null, "select state from public.invite_preview($1)", [rows[0].token]);
     expect(again.rows).toEqual([{ state: "used" }]);
+  });
+
+  it("withdraws invites from someone who can no longer invite", async () => {
+    const fay = await db.user("Fay");
+    const gus = await db.user("Gus");
+    await db.admin("update auth.users set email = 'gus@uni.edu' where id = $1", [gus]);
+    const project = await db.project(ada, { [fay]: "author" });
+    const { rows } = await db.as<{ token: string }>(fay, "insert into public.project_invites (project_id, email, role) values ($1, 'gus@uni.edu', 'author') returning token", [project]);
+    await db.as(ada, "delete from public.project_members where project_id = $1 and user_id = $2", [project, fay]);
+    await expectCode(db.as(gus, "select public.accept_project_invite($1)", [rows[0].token]), PG.raiseException);
+    const left = await db.admin("select 1 from public.project_invites where project_id = $1", [project]);
+    expect(left.rows).toHaveLength(0);
   });
 });

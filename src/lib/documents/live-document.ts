@@ -30,29 +30,39 @@ async function readRoom(documentId: string) {
 }
 
 async function storedState(documentId: string, saver: Saver) {
-  const hex = await readStoredState(documentId, saver);
-  return hex ? fromHex(hex) : null;
+  const stored = await readStoredState(documentId, saver);
+  return stored ? { update: fromHex(stored.ydoc), revision: stored.revision } : null;
+}
+
+/** True when `doc` already has every change in `update`'s state vector. */
+function covers(doc: Y.Doc, update: Uint8Array) {
+  const have = Y.decodeStateVector(Y.encodeStateVector(doc));
+  for (const [client, clock] of Y.decodeStateVector(Y.encodeStateVectorFromUpdate(update))) {
+    if ((have.get(client) ?? 0) < clock) return false;
+  }
+  return true;
 }
 
 type VersionRequest = { label?: string | null; createdBy?: string | null; auto?: boolean };
 
+const isConflict = (error: { code?: string } | null) => error?.code === "40001";
+
 /**
- * Copies the live manuscript from Liveblocks into Supabase: the Yjs document itself, its
- * plain text, which sources it cites and, if asked, a version for history. Returns the new
- * version's id, or null when none was needed.
- *
- * A room that has never been written to while Supabase holds text means the room was lost
- * (a new Liveblocks project or key). Then the saved text is put back instead of being
- * overwritten with nothing.
+ * One save: the live room merged with what Supabase already holds, so the saved copy only
+ * ever gains changes. Whatever Supabase has that the room lacks (a lost or reset room) is
+ * pushed back into the room first. Returns the merged document and the new version's id.
  */
-export async function saveLiveDocument(documentId: string, saver: Saver, version?: VersionRequest) {
-  const doc = await readRoom(documentId);
-  if (isBlank(doc)) {
-    const stored = await storedState(documentId, saver);
-    if (stored) {
-      await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), stored);
-      return null;
+async function saveOnce(documentId: string, saver: Saver, version: VersionRequest | undefined, room: Y.Doc) {
+  const stored = await storedState(documentId, saver);
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(room));
+  if (stored) {
+    if (!covers(room, stored.update)) {
+      await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), Y.diffUpdate(stored.update, Y.encodeStateVector(room)));
     }
+    Y.applyUpdate(doc, stored.update);
+  } else if (isBlank(doc)) {
+    return { doc, versionId: null, error: null };
   }
 
   const json = manuscriptJSON(doc);
@@ -65,11 +75,36 @@ export async function saveLiveDocument(documentId: string, saver: Saver, version
     p_label: version?.label ?? null,
     p_created_by: version?.createdBy ?? null,
     p_min_gap: version?.auto ? AUTO_VERSION_GAP : null,
+    p_base_revision: stored?.revision ?? null,
   }, saver);
-  // The document was deleted while its room lived on; there is nothing to keep.
-  if (error?.code === "23503") return null;
-  if (error) throw new Error(`Couldn't save the manuscript: ${error.message}`);
-  return data;
+  return { doc, versionId: data ?? null, error };
+}
+
+async function save(documentId: string, saver: Saver, version?: VersionRequest, room?: Y.Doc) {
+  for (let attempt = 0; ; attempt++) {
+    const result = await saveOnce(documentId, saver, version, room ?? (await readRoom(documentId)));
+    // Someone else saved in between: merge with theirs and try again.
+    if (isConflict(result.error) && attempt < 3) {
+      room = undefined;
+      continue;
+    }
+    // The document was deleted while its room lived on; there is nothing to keep.
+    if (result.error?.code === "23503") return { doc: result.doc, versionId: null };
+    if (result.error) throw new Error(`Couldn't save the manuscript: ${result.error.message}`);
+    return { doc: result.doc, versionId: result.versionId };
+  }
+}
+
+/**
+ * Copies the live manuscript from Liveblocks into Supabase: the Yjs document itself, its
+ * plain text, which sources it cites and, if asked, a version for history. Returns the new
+ * version's id, or null when none was needed.
+ *
+ * Saves merge rather than replace, so two saves racing, or an empty room (a new Liveblocks
+ * project or key), can never make the saved copy lose text; the room is refilled instead.
+ */
+export async function saveLiveDocument(documentId: string, saver: Saver, version?: VersionRequest) {
+  return (await save(documentId, saver, version)).versionId;
 }
 
 /**
@@ -92,7 +127,7 @@ export async function restoreLostRoom(documentId: string, saver: Saver) {
     const stored = await storedState(documentId, saver);
     if (!stored) return;
     await getLiveblocks().createRoom(roomIdFor(documentId), { defaultAccesses: [] });
-    await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), stored);
+    await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), stored.update);
   } catch (error) {
     console.error("[live-document] couldn't check the room", documentId, error);
   }
@@ -100,15 +135,15 @@ export async function restoreLostRoom(documentId: string, saver: Saver) {
 
 /**
  * Replaces the live manuscript with a version, as one change everyone's editor applies
- * together. The current text is saved as a version first, so a restore can be undone.
+ * together. The text as it is at that moment is saved as a version first, from the very
+ * snapshot that is then replaced, so a restore can always be undone.
  */
 export async function restoreVersion(documentId: string, saver: Saver, content: DocJSON, restoredBy: string, label: string) {
-  await saveLiveDocument(documentId, saver, { label, createdBy: restoredBy });
-  const doc = await readRoom(documentId);
+  const { doc } = await save(documentId, saver, { label, createdBy: restoredBy });
   const before = Y.encodeStateVector(doc);
   replaceManuscript(doc, content);
   await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), Y.encodeStateAsUpdate(doc, before));
-  await saveLiveDocument(documentId, saver);
+  await save(documentId, saver);
 }
 
 /**
@@ -117,12 +152,17 @@ export async function restoreVersion(documentId: string, saver: Saver, content: 
  */
 export async function readManuscript(documentId: string, saver: Saver) {
   let doc: Y.Doc | null = null;
-  if (isLiveblocksConfigured()) doc = await readRoom(documentId).catch(() => null);
+  if (isLiveblocksConfigured()) {
+    // A manuscript nobody has opened yet has no room: it is simply empty.
+    doc = await readRoom(documentId).catch((error: unknown) =>
+      error instanceof LiveblocksError && error.status === 404 ? new Y.Doc() : null,
+    );
+  }
   if ((!doc || isBlank(doc)) && canStore(saver)) {
     const stored = await storedState(documentId, saver);
     if (stored) {
       doc = new Y.Doc();
-      Y.applyUpdate(doc, stored);
+      Y.applyUpdate(doc, stored.update);
     }
   }
   if (!doc) return null;

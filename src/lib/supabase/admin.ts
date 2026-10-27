@@ -32,17 +32,19 @@ export function canStore(saver: Saver) {
 
 type SaveArgs = Database["public"]["Functions"]["save_document_state"]["Args"];
 
-/** The manuscript's saved Yjs state as Postgres hex (`\x…`), or null if none is saved. */
-export async function readStoredState(documentId: string, saver: Saver): Promise<string | null> {
+export type StoredState = { ydoc: string; revision: number };
+
+/** The manuscript's saved Yjs state (Postgres hex, `\x…`) and its revision, or null. */
+export async function readStoredState(documentId: string, saver: Saver): Promise<StoredState | null> {
   if (isAdminConfigured()) {
-    const { data, error } = await adminClient().from("document_state").select("ydoc").eq("document_id", documentId).maybeSingle();
+    const { data, error } = await adminClient().from("document_state").select("ydoc, revision").eq("document_id", documentId).maybeSingle();
     if (error) throw new Error(`Couldn't read the saved manuscript: ${error.message}`);
-    return data?.ydoc ?? null;
+    return data ?? null;
   }
   if (!saver) throw new Error("No one to read the saved manuscript as.");
   const { data, error } = await saver.rpc("member_document_state", { p_document: documentId });
   if (error) throw new Error(`Couldn't read the saved manuscript: ${error.message}`);
-  return data ?? null;
+  return data?.[0] ?? null;
 }
 
 /** Saves the manuscript's state (and a version, when asked). Returns the new version's id. */
