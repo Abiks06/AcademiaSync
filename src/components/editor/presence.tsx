@@ -1,18 +1,19 @@
 "use client";
 
 import { AnimatePresence, motion } from "motion/react";
-import { useOthers } from "@liveblocks/react/suspense";
+import { useOthers, useSelf } from "@liveblocks/react/suspense";
 import { initials } from "@/components/app/accent";
 import { SPRING } from "@/components/motion/tokens";
 
 const SHOWN = 5;
 
-/** Who else is in this manuscript right now. Two tabs of one person count once. */
+/** Who else is in this manuscript right now. Two tabs of one person count once, and your own other tabs not at all. */
 export function PresenceStack({ compact = false }: { compact?: boolean }) {
   const others = useOthers();
+  const selfId = useSelf((me) => me.id);
   const seen = new Map<string, { id: string; name: string; avatar?: string; color: string; typingAt: number }>();
   for (const o of others) {
-    if (!o.id) continue;
+    if (!o.id || o.id === selfId) continue;
     const typingAt = o.presence.typingAt ?? 0;
     const known = seen.get(o.id);
     if (known) known.typingAt = Math.max(known.typingAt, typingAt);

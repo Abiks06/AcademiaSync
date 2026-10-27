@@ -9,6 +9,7 @@ describe("detectIdentifier", () => {
     expect(detectIdentifier("https://arxiv.org/abs/hep-th/9901001")).toEqual({ kind: "arxiv", id: "hep-th/9901001" });
     expect(detectIdentifier("10.48550/arXiv.2101.01234")).toEqual({ kind: "arxiv", id: "2101.01234" });
     expect(detectIdentifier("PMID: 22356627")).toEqual({ kind: "pubmed", id: "22356627" });
+    expect(detectIdentifier("PMID 22356627")).toEqual({ kind: "pubmed", id: "22356627" });
     expect(detectIdentifier("https://pubmed.ncbi.nlm.nih.gov/22356627/")).toEqual({ kind: "pubmed", id: "22356627" });
     expect(detectIdentifier("not an id")).toBeNull();
   });

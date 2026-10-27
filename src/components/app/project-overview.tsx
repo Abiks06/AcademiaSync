@@ -152,7 +152,7 @@ function NewDocumentForm({ projectId, requestId }: { projectId: string; requestI
         required
         maxLength={200}
         placeholder="Name a new manuscript, e.g. Results draft"
-        className="h-11 flex-1 rounded-xl border border-line bg-bg-elev px-4 outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-iris focus:shadow-[0_0_0_4px_var(--iris-soft)]"
+        className="h-11 w-full rounded-xl border border-line bg-bg-elev px-4 sm:w-auto sm:flex-1 outline-none transition-[border-color,box-shadow] placeholder:text-faint focus:border-iris focus:shadow-[0_0_0_4px_var(--iris-soft)]"
       />
       <AddButton />
       {state.error && <p role="alert" className="text-sm text-danger sm:basis-full">{state.error}</p>}
