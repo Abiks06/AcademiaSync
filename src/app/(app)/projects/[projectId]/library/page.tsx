@@ -9,8 +9,9 @@ import { sanitizeAuthors } from "@/lib/library/authors";
 
 export const metadata: Metadata = { title: "Library" };
 
-export default async function LibraryPage({ params }: PageProps<"/projects/[projectId]/library">) {
-  const { projectId } = await params;
+export default async function LibraryPage({ params, searchParams }: PageProps<"/projects/[projectId]/library">) {
+  const [{ projectId }, query] = await Promise.all([params, searchParams]);
+  const focus = typeof query.source === "string" && z.string().uuid().safeParse(query.source).success ? query.source : undefined;
   if (!z.string().uuid().safeParse(projectId).success) notFound();
 
   const { supabase, user } = await getUser();
@@ -50,6 +51,7 @@ export default async function LibraryPage({ params }: PageProps<"/projects/[proj
       canDeleteAll={membership.role === "owner" || membership.role === "author"}
       userId={user.id}
       createdBy={createdBy}
+      focusId={focus}
     />
   );
 }

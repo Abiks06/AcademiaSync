@@ -25,6 +25,11 @@ truth per piece of data, and nothing that fakes success.**
 - Live editor: real-time co-writing with cursors, presence, comments and version history
 - Reference library per project: add sources by DOI (Crossref) or by hand, search, copy APA references, export BibTeX
 - In-text citations from the editor (Ctrl/Cmd+Shift+K) and a live bibliography panel
+- Paste a DOI, arXiv or PubMed link into a manuscript and it becomes a source and a citation
+- Hover cards on citations: the paper, its abstract, the team's notes and links to the library
+- Ctrl/Cmd+K palette to jump to any project, manuscript or source, or run a command
+- Follow a collaborator through the manuscript, with their avatar in the margin beside where they are
+- A sample project with five real papers and a guided tour of the editor
 - CI that lints, type-checks, tests and builds every pull request
 
 ## Set up
@@ -47,6 +52,9 @@ truth per piece of data, and nothing that fakes success.**
 npm install
 npm run dev
 ```
+
+To work without a Liveblocks account, run the app inside the local Liveblocks dev server:
+`npx liveblocks dev -c "npm run dev"`.
 
 ## Scripts
 

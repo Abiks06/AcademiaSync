@@ -4,12 +4,17 @@ import { AnimatePresence, motion } from "motion/react";
 import { useOthers, useSelf } from "@liveblocks/react/suspense";
 import { initials } from "@/components/app/accent";
 import { SPRING } from "@/components/motion/tokens";
+import { useFollow } from "./follow";
 
 const SHOWN = 5;
 
-/** Who else is in this manuscript right now. Two tabs of one person count once, and your own other tabs not at all. */
+/**
+ * Who else is in this manuscript right now. Two tabs of one person count once, and your own
+ * other tabs not at all. Clicking someone follows them through the manuscript.
+ */
 export function PresenceStack({ compact = false }: { compact?: boolean }) {
   const others = useOthers();
+  const { following, follow } = useFollow();
   const selfId = useSelf((me) => me.id);
   const seen = new Map<string, { id: string; name: string; avatar?: string; color: string; typingAt: number }>();
   for (const o of others) {
@@ -28,17 +33,32 @@ export function PresenceStack({ compact = false }: { compact?: boolean }) {
       <div className="flex -space-x-2">
         <AnimatePresence initial={false}>
           {people.slice(0, SHOWN).map((p) => (
-            <motion.span
+            <motion.button
               key={p.id}
+              type="button"
               layout
               initial={{ opacity: 0, scale: 0.4, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.4, y: 8 }}
+              whileHover={{ y: -2 }}
               transition={SPRING.pop}
-              title={p.name}
+              onClick={() => follow(following === p.id ? null : p.id)}
+              aria-pressed={following === p.id}
+              aria-label={following === p.id ? `Stop following ${p.name}` : `Follow ${p.name}`}
+              title={following === p.id ? `Following ${p.name}. Click to stop` : `${p.name}. Click to follow`}
               className="relative grid h-8 w-8 place-items-center rounded-full text-[11px] font-semibold text-bg ring-2 ring-bg"
-              style={{ background: p.color }}
+              style={{ background: p.color, zIndex: following === p.id ? 1 : undefined }}
             >
+              {/* A ring in their colour draws around whoever you're following. */}
+              {following === p.id && (
+                <motion.span
+                  layoutId="follow-ring"
+                  aria-hidden
+                  className="pointer-events-none absolute -inset-[5px] rounded-full"
+                  style={{ boxShadow: `0 0 0 2px ${p.color}` }}
+                  transition={SPRING.snappy}
+                />
+              )}
               {/* A ring ripples out each time this person types. */}
               {p.typingAt > 0 && (
                 <motion.span
@@ -59,7 +79,7 @@ export function PresenceStack({ compact = false }: { compact?: boolean }) {
                   initials(p.name)
                 )}
               </span>
-            </motion.span>
+            </motion.button>
           ))}
           {people.length > SHOWN && (
             <motion.span

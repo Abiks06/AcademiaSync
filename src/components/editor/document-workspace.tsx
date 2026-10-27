@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, ChevronLeft, Download, FileCode2, FileText, History, Lock, MoreHorizontal, PauseCircle, Printer, Quote, RefreshCw, WifiOff } from "lucide-react";
+import { BookMarked, ChevronLeft, Compass, Download, Eye, FileCode2, FileText, History, Lock, MoreHorizontal, PauseCircle, Plus, Printer, Quote, RefreshCw, WifiOff } from "lucide-react";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
@@ -46,9 +46,13 @@ import { useLibrarySync } from "@/lib/library/use-library-sync";
 import { useBibliography } from "@/lib/library/use-bibliography";
 import { useRequestKey } from "@/lib/use-request-key";
 import { SCHEMA_VERSION, canOpen, claimSchema, documentMeta, readStyle, writeStyle } from "@/lib/editor/schema-version";
-import { listSources } from "@/app/(app)/projects/[projectId]/library/actions";
+import { listSources, lookupSource, saveSource } from "@/app/(app)/projects/[projectId]/library/actions";
 import { SourceDialog } from "@/components/library/source-dialog";
 import { SlashBridge, SlashCommands, type SlashState } from "@/lib/editor/slash-commands";
+import { PasteBridge, SmartPaste, finishSmartPaste, pendingPosition } from "@/lib/editor/smart-paste";
+import { identifierQuery, matchesIdentifier } from "@/lib/library/paste-identifier";
+import type { Identifier } from "@/lib/library/lookup";
+import { usePaletteCommands, type PaletteCommand } from "@/components/app/command-palette";
 import { SlashMenu } from "./slash-menu";
 import { Citation, quietCitationsForAMoment } from "./citation";
 import { CitationPicker } from "./citation-picker";
@@ -58,6 +62,8 @@ import { SourcesContext } from "./sources-context";
 import { PresenceStack } from "./presence";
 import { SyncStatus } from "./sync-status";
 import { VersionsPanel } from "./versions-panel";
+import { FollowBanner, FollowContext, MarginPresence, useFollowScroll, usePositionBroadcast } from "./follow";
+import { Tour } from "./tour";
 
 export type WorkspaceProps = {
   document: { id: string; title: string; status: DocumentStatus };
@@ -87,6 +93,8 @@ export function DocumentWorkspace(props: WorkspaceProps) {
 
   return (
     <LiveblocksProvider
+      // Set only when running against the local Liveblocks dev server.
+      baseUrl={process.env.NEXT_PUBLIC_LIVEBLOCKS_BASE_URL || undefined}
       authEndpoint={async (room) => {
         try {
           const res = await fetch("/api/liveblocks-auth", {
@@ -241,6 +249,11 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const [cited, setCited] = useState<{ ids: string[]; count: number }>({ ids: [], count: 0 });
   const [checking, setChecking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [following, setFollowing] = useState<string | null>(null);
+  const followValue = useMemo(() => ({ following, follow: setFollowing }), [following]);
+  const [touring, setTouring] = useState(false);
+  const page = useRef<HTMLDivElement>(null);
+  const toast = useToast();
   useEffect(onOpened, [onOpened]);
   // Runs once, before the citations already in the text mount.
   useState(quietCitationsForAMoment);
@@ -284,9 +297,17 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   // Any edit to a cited source (or deleting it) re-formats the reference list.
   const citedVersion = cited.ids.map((id) => `${byId.get(id)?.updated_at ?? ""}${byId.get(id)?.deleted_at ?? ""}`).join();
   const bib = useBibliography(project.id, cited.ids, style, citedVersion);
+  // Set once the editor exists; citations call it to edit themselves from their hover card.
+  const editCitation = useRef<((pos: number) => void) | null>(null);
   const sourcesValue = useMemo(
-    () => ({ byId, checking, cite: citeContext(style, cited.ids, (id) => byId.get(id)) }),
-    [byId, checking, style, cited.ids],
+    () => ({
+      byId,
+      checking,
+      cite: citeContext(style, cited.ids, (id) => byId.get(id)),
+      projectId: project.id,
+      editCitation: canCite ? (pos: number) => editCitation.current?.(pos) : null,
+    }),
+    [byId, checking, style, cited.ids, project.id, canCite],
   );
 
   const openPicker = useRef<() => void>(() => {});
@@ -295,9 +316,12 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const [slashBridge] = useState(() => new SlashBridge());
   const bindSlashKeys = useCallback((handler: (e: KeyboardEvent) => boolean) => slashBridge.setKeyHandler(handler), [slashBridge]);
   const canCiteRef = useRef(canCite);
+  // The paste plugin lives outside React too, and talks through its own bridge.
+  const [pasteBridge] = useState(() => new PasteBridge());
   useEffect(() => {
     canCiteRef.current = canCite;
-  }, [canCite]);
+    pasteBridge.setEnabled(canCite);
+  }, [canCite, pasteBridge]);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -313,6 +337,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         onChange: setSlash,
         onKeyDown: (event) => slashBridge.keys(event),
       }),
+      SmartPaste.configure({ enabled: pasteBridge.enabled, onIdentifier: pasteBridge.handle }),
     ],
     editorProps: {
       attributes: { class: "manuscript-prose", "aria-label": "Manuscript text", spellcheck: "true" },
@@ -334,18 +359,65 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
 
   // Opening the picker with a citation selected edits that citation.
   const startCiting = useCallback(() => {
-    if (!canCiteRef.current) return;
+    if (!canCite) return;
     const selected = (editor?.state.selection as { node?: { type: { name: string }; attrs: Record<string, unknown> } } | undefined)?.node;
     if (selected?.type.name === CITATION_NODE) {
       setPicker({ mode: "pick", initial: { items: citationItems(selected.attrs), mode: citationMode(selected.attrs) } });
     } else {
       setPicker({ mode: "pick" });
     }
-  }, [editor]);
+  }, [editor, canCite]);
   useEffect(() => {
     openPicker.current = startCiting;
     slashBridge.setCite(canCite, startCiting);
-  }, [startCiting, slashBridge, canCite]);
+    editCitation.current = (pos) => {
+      editor?.chain().focus().setNodeSelection(pos).run();
+      startCiting();
+    };
+  }, [startCiting, slashBridge, canCite, editor]);
+
+  usePositionBroadcast(editor);
+
+  // Opened from the sample project (?tour=1): start the tour once the page has settled.
+  const [tourAsked] = useState(() => new URLSearchParams(window.location.search).get("tour") === "1");
+  useEffect(() => {
+    if (!tourAsked) return;
+    const params = new URLSearchParams(window.location.search);
+    params.delete("tour");
+    const rest = params.toString();
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+    const timer = setTimeout(() => setTouring(true), 900);
+    return () => clearTimeout(timer);
+  }, [tourAsked]);
+
+  const download = useExport(document.id, document.title);
+  const people = useOthers((others) => {
+    const seen = new Map<string, string>();
+    for (const o of others) if (o.id && !seen.has(o.id)) seen.set(o.id, o.info?.name ?? "Collaborator");
+    return [...seen].map(([id, name]) => `${id}\u0000${name}`).join("\u0001");
+  });
+  const commands = useMemo<PaletteCommand[]>(() => {
+    const list: PaletteCommand[] = [];
+    if (canCite) {
+      list.push(
+        { id: "cite", label: "Cite a source", hint: "Ctrl/Cmd+Shift+K", keywords: "citation reference insert", icon: <Quote className="h-4 w-4" />, perform: startCiting },
+        { id: "add-source", label: "Add a source and cite it", keywords: "doi arxiv pubmed new reference", icon: <Plus className="h-4 w-4" />, perform: () => setPicker({ mode: "add" }) },
+      );
+    }
+    list.push(
+      { id: "references", label: "Show references", keywords: "bibliography works cited", icon: <BookMarked className="h-4 w-4" />, perform: () => setReferencesOpen(true) },
+      { id: "history", label: "Show version history", keywords: "versions restore compare snapshot", icon: <History className="h-4 w-4" />, perform: () => setVersionsOpen(true) },
+      { id: "docx", label: "Export to Word", keywords: "download docx", icon: <FileText className="h-4 w-4" />, perform: () => void download("docx") },
+      { id: "md", label: "Export to Markdown", keywords: "download pandoc overleaf", icon: <FileCode2 className="h-4 w-4" />, perform: () => void download("md") },
+      { id: "tour", label: "Take the tour of the editor", keywords: "help guide tutorial", icon: <Compass className="h-4 w-4" />, perform: () => setTouring(true) },
+    );
+    for (const entry of people ? people.split("\u0001") : []) {
+      const [id, name] = entry.split("\u0000");
+      list.push({ id: `follow-${id}`, label: `Follow ${name}`, hint: "Scroll with them through the manuscript", keywords: "presence watch", icon: <Eye className="h-4 w-4" />, perform: () => setFollowing(id) });
+    }
+    return list;
+  }, [canCite, startCiting, download, people]);
+  usePaletteCommands("Here", commands);
 
   // Count words, and after a pause ask the server to copy the live text into Supabase (and
   // take an automatic version when one is due), in case the webhook is off or behind.
@@ -389,16 +461,61 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     };
   }, [editor, canEdit, document.id, updatePresence]);
 
+  /** Inserts a citation at the cursor, or at `at` (where a DOI was pasted). */
   const insert = useCallback(
-    (items: CitationItem[], mode: CitationMode, extra?: Source) => {
+    (items: CitationItem[], mode: CitationMode, extra?: Source, at?: number) => {
       const lookup = (id: string) => (extra?.id === id ? extra : byId.get(id));
       const ids = [...cited.ids, ...items.map((i) => i.sourceId).filter((id) => !cited.ids.includes(id))];
       const label = formatCitation(items, mode, citeContext(style, ids, lookup));
       setPicker({ mode: "closed" });
-      editor?.chain().focus().insertCitation({ items, mode, label }).run();
+      if (at === undefined) editor?.chain().focus().insertCitation({ items, mode, label }).run();
+      else editor?.chain().insertContentAt(at, [{ type: CITATION_NODE, attrs: { items, mode, label } }, { type: "text", text: " " }]).run();
     },
     [editor, byId, cited.ids, style],
   );
+
+  // A pasted DOI, arXiv or PubMed link: cite the library's copy if there is one, otherwise
+  // look the paper up, add it to the library and cite it. If that fails, the link goes in
+  // as the plain text that was pasted, so nothing is lost.
+  useEffect(() => {
+    pasteBridge.setHandler(async (ident: Identifier, pending: { id: string; text: string }) => {
+      if (!editor) return;
+      const land = (fn: (at: number) => void) => {
+        const at = pendingPosition(editor.state, pending.id);
+        finishSmartPaste(editor.view, pending.id);
+        if (at !== null) fn(at);
+      };
+      const asText = (title: string, description: string) => {
+        land((at) => editor.chain().insertContentAt(at, pending.text).run());
+        toast({ tone: "error", title, description });
+      };
+      const cite = (source: Source) => land((at) => insert([{ sourceId: source.id }], "parenthetical", source, at));
+
+      const existing = live.find((s) => matchesIdentifier(s, ident));
+      if (existing) return cite(existing);
+      try {
+        const found = await lookupSource(identifierQuery(ident));
+        if (!found.ok) return asText("Pasted as text", found.error);
+        const saved = await saveSource({ projectId: project.id, requestId: crypto.randomUUID(), fields: found.source });
+        if (!saved.ok) {
+          // A co-author may have added it a moment ago.
+          const fresh = await listSources(project.id, { abstracts: false });
+          const theirs = fresh.ok ? fresh.sources.find((s) => !s.deleted_at && matchesIdentifier(s, ident)) : undefined;
+          if (fresh.ok) setSources(fresh.sources);
+          return theirs ? cite(theirs) : asText("Pasted as text", saved.error);
+        }
+        setSources((prev) => (prev.some((s) => s.id === saved.source.id) ? prev : [saved.source, ...prev]));
+        cite(saved.source);
+        toast({
+          tone: "success",
+          title: "Added to the library and cited",
+          description: saved.source.title.length > 90 ? `${saved.source.title.slice(0, 87)}…` : saved.source.title,
+        });
+      } catch {
+        asText("Pasted as text", "Couldn't reach AcademiaSync to look the paper up. Check your connection and paste it again.");
+      }
+    });
+  }, [editor, insert, live, project.id, toast, pasteBridge]);
 
   const onSourceAdded = useCallback(
     (source: Source) => {
@@ -451,6 +568,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
 
   return (
     <SourcesContext.Provider value={sourcesValue}>
+    <FollowContext.Provider value={followValue}>
+    <FollowScroll editor={editor} />
     <div className="mx-auto max-w-[78rem]">
       <EditorBar
         project={project}
@@ -461,6 +580,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             {canEdit && (
               <button
                 onClick={startCiting}
+                data-tour="cite"
                 disabled={!canCite}
                 title={canCite ? "Cite a source (Ctrl/Cmd+Shift+K, or type [@ or /cite)" : "Someone has this manuscript open in an older version. Citing resumes when they reload."}
                 className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong disabled:opacity-50"
@@ -470,6 +590,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             )}
             <button
               onClick={() => setReferencesOpen(true)}
+              data-tour="references"
               className="hidden h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong md:inline-flex"
             >
               <BookMarked className="h-4 w-4 text-iris" /> References
@@ -478,6 +599,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             <ExportMenu documentId={document.id} title={document.title} className="hidden md:block" />
             <button
               onClick={() => setVersionsOpen(true)}
+              data-tour="history"
               className="hidden h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong md:inline-flex"
             >
               <History className="h-4 w-4 text-iris" /> History
@@ -518,7 +640,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
       >
         {/* Writing happens on solid paper, not glass. */}
-        <div className="print-area relative min-h-[70dvh] rounded-2xl border border-line bg-panel-solid px-6 py-10 shadow-[0_30px_80px_-40px_rgb(0_0_0/0.55)] sm:px-14 sm:py-14">
+        <div ref={page} data-tour="page" className="print-area relative min-h-[70dvh] rounded-2xl border border-line bg-panel-solid px-6 py-10 shadow-[0_30px_80px_-40px_rgb(0_0_0/0.55)] sm:px-14 sm:py-14">
+          <MarginPresence editor={editor} container={page} />
           <div className="mx-auto max-w-[46rem]">
             <h1 className="mb-8 hidden font-serif text-3xl print:block">{document.title}</h1>
             <EditorContent editor={editor} />
@@ -568,9 +691,18 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
           />
         )}
       </AnimatePresence>
+      <FollowBanner />
+      {touring && <Tour onClose={() => setTouring(false)} />}
     </div>
+    </FollowContext.Provider>
     </SourcesContext.Provider>
   );
+}
+
+/** Lives inside the follow context it reads. */
+function FollowScroll({ editor }: { editor: Editor | null }) {
+  useFollowScroll(editor);
+  return null;
 }
 
 /** Downloads an export without leaving the editor; a failure is a toast, never a raw error page. */
@@ -708,7 +840,7 @@ function EditorBar({ project, accent, title, actions }: { project: { id: string;
         )}
       </AnimatePresence>
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <div className="hidden sm:block">
+        <div className="hidden sm:block" data-tour="presence">
           <PresenceStack compact={condensed} />
         </div>
         <SyncStatus compact={condensed} />

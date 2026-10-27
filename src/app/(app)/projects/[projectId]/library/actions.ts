@@ -339,3 +339,23 @@ export async function bibliography(input: { projectId: string; sourceIds: string
     return { ok: false, error: "Couldn't format the references in this style." };
   }
 }
+
+export type SourceDetailsResult =
+  | { ok: true; abstract: string | null; addedBy: string | null; addedAt: string }
+  | { ok: false; error: string };
+
+/** What a citation's hover card shows beyond what the editor already has: the abstract, and who added the source. */
+export async function sourceDetails(sourceId: string): Promise<SourceDetailsResult> {
+  if (!uuid.safeParse(sourceId).success) return { ok: false, error: "Unknown source." };
+  const auth = await actionUser();
+  if (!auth.ok) return auth;
+  const { data, error } = await auth.supabase.from("sources").select("abstract, created_by, created_at").eq("id", sourceId).maybeSingle();
+  if (error) return { ok: false, error: dbErrorMessage(error, "load the source") };
+  if (!data) return { ok: false, error: "This source isn't in the library any more." };
+  let addedBy: string | null = null;
+  if (data.created_by) {
+    const profile = await auth.supabase.from("profiles").select("full_name").eq("id", data.created_by).maybeSingle();
+    addedBy = data.created_by === auth.user.id ? "you" : (profile.data?.full_name ?? null);
+  }
+  return { ok: true, abstract: data.abstract, addedBy, addedAt: data.created_at };
+}

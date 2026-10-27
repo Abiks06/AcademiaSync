@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
 import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
@@ -24,9 +24,23 @@ type Props = {
   canDeleteAll: boolean;
   userId: string;
   createdBy: Record<string, string | null>;
+  /** A source to scroll to and highlight, e.g. from a citation's card or the ⌘K palette. */
+  focusId?: string;
 };
 
-export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy }: Props) {
+export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy, focusId }: Props) {
+  const [focused, setFocused] = useState(focusId ?? null);
+  useEffect(() => {
+    if (!focusId) return;
+    const frame = requestAnimationFrame(() => setFocused(focusId));
+    const el = document.getElementById(`source-${focusId}`);
+    el?.scrollIntoView({ block: "center", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    const timer = setTimeout(() => setFocused(null), 2600);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, [focusId]);
   const [all, setAll] = useState(initialSources);
   const [createdBy, setCreatedBy] = useState(initialCreatedBy);
   const [query, setQuery] = useState("");
@@ -187,12 +201,13 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
             return (
               <motion.li
                 key={s.id}
+                id={`source-${s.id}`}
                 layout
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.97 }}
                 transition={{ delay: Math.min(i, 10) * 0.03 }}
-                className="glass rounded-2xl p-5"
+                className={`glass scroll-mt-24 rounded-2xl p-5 transition-shadow duration-700 ${focused === s.id ? "shadow-[0_0_0_2px_var(--iris),0_0_40px_-6px_var(--iris)]" : ""}`}
               >
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <span className="rounded bg-iris-soft px-2 py-0.5 font-mono text-iris">{KIND_LABEL[s.kind]}</span>

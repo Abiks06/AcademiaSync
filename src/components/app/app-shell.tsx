@@ -4,11 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
-import { FolderKanban, LogOut, Menu, X } from "lucide-react";
+import { FolderKanban, LogOut, Menu, Search, X } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { Dialog } from "@/components/ui/dialog";
 import { SPRING } from "@/components/motion/tokens";
 import { accentColor, initials } from "./accent";
+import { PaletteProvider, useModKey, usePalette } from "./command-palette";
 
 type ShellProps = {
   user: { name: string; email: string; avatarUrl: string | null };
@@ -20,6 +21,7 @@ export function AppShell({ user, projects, children }: ShellProps) {
   const [open, setOpen] = useState(false);
 
   return (
+    <PaletteProvider>
     <div className="flex min-h-dvh">
       <a
         href="#main"
@@ -55,10 +57,38 @@ export function AppShell({ user, projects, children }: ShellProps) {
           </button>
           <Logo className="h-6 w-6" />
           <span className="font-semibold">AcademiaSync</span>
+          <SearchButton compact />
         </header>
         <main id="main" tabIndex={-1} className="flex-1 px-4 py-8 outline-none sm:px-8 lg:px-12">{children}</main>
       </div>
     </div>
+    </PaletteProvider>
+  );
+}
+
+/** Opens the ⌘K palette. Full width in the sidebar, an icon in the phone header. */
+function SearchButton({ compact = false, onOpen }: { compact?: boolean; onOpen?: () => void }) {
+  const open = usePalette();
+  const mod = useModKey();
+  if (compact) {
+    return (
+      <button aria-label="Search and commands" onClick={open} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-iris-soft hover:text-ink">
+        <Search className="h-5 w-5" />
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={() => {
+        onOpen?.();
+        open();
+      }}
+      className="group mb-6 flex w-full items-center gap-2.5 whitespace-nowrap rounded-xl border border-line bg-bg/60 px-3 py-2 text-sm text-faint transition-colors hover:border-line-strong hover:text-muted"
+    >
+      <Search className="h-4 w-4 text-iris" aria-hidden />
+      Search
+      <kbd className="ml-auto rounded-md border border-line px-1.5 py-0.5 font-mono text-[10px] transition-colors group-hover:border-line-strong">{mod} K</kbd>
+    </button>
   );
 }
 
@@ -75,6 +105,7 @@ function SidebarContent({
         <Logo className="h-7 w-7" />
         AcademiaSync
       </Link>
+      <SearchButton onOpen={onNavigate} />
 
       <LayoutGroup id="sidebar">
         <nav className="flex flex-col gap-0.5 text-sm">
