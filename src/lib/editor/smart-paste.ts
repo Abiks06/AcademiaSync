@@ -23,9 +23,10 @@ export type SmartPasteOptions = {
   onIdentifier: (ident: Identifier, pending: Pending) => void;
 };
 
-function placeholder(text: string) {
+function placeholder(id: string, text: string) {
   const el = document.createElement("span");
   el.className = "citation citation-pending";
+  el.dataset.pasteId = id;
   // The editor announces progress in its own status line, so screen readers skip this.
   el.setAttribute("aria-hidden", "true");
   el.textContent = text.length > 28 ? `${text.slice(0, 26)}…` : text;
@@ -82,7 +83,7 @@ export const SmartPaste = Extension.create<SmartPasteOptions>({
             if (items.length === 0) return DecorationSet.empty;
             return DecorationSet.create(
               state.doc,
-              items.map((item) => Decoration.widget(where(state, item), () => placeholder(item.text), { key: item.id, side: -1 })),
+              items.map((item) => Decoration.widget(where(state, item), () => placeholder(item.id, item.text), { key: item.id, side: -1 })),
             );
           },
           handlePaste(view, event) {
@@ -140,4 +141,50 @@ export function pendingPosition(state: EditorState, id: string) {
 export function finishSmartPaste(view: EditorView, id: string) {
   if (view.isDestroyed) return;
   view.dispatch(view.state.tr.setMeta(smartPasteKey, { remove: id } satisfies Meta));
+}
+
+/** How wide a pending paste's placeholder is on screen, so the citation can grow out of it. */
+export function pendingWidth(view: EditorView, id: string) {
+  const el = view.dom.querySelector<HTMLElement>(`[data-paste-id="${CSS.escape(id)}"]`);
+  return el ? el.getBoundingClientRect().width : null;
+}
+
+const MORPH_MS = 260;
+
+/**
+ * The citation just put in at `at` grows (or shrinks) from the placeholder's width to its
+ * own, with a brief iris glow, so the shimmering pill seems to turn into the citation.
+ */
+export function growFromPill(view: EditorView, at: number, fromWidth: number) {
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  // The citation's view is drawn by React, which may take a frame.
+  requestAnimationFrame(() => {
+    if (view.isDestroyed) return;
+    const node = view.nodeDOM(at);
+    const citation = node instanceof HTMLElement ? (node.matches(".citation") ? node : node.querySelector(".citation")) : null;
+    const label = citation?.querySelector<HTMLElement>(":scope > span") ?? null;
+    if (!label) return;
+    const toWidth = label.getBoundingClientRect().width;
+    if (!toWidth) return;
+    const style = label.style;
+    // Its own pop would fight the morph.
+    style.animation = "none";
+    style.display = "inline-block";
+    style.whiteSpace = "nowrap";
+    style.overflow = "hidden";
+    style.verticalAlign = "bottom";
+    style.borderRadius = "0.4em";
+    const run = label.animate(
+      [
+        { width: `${fromWidth}px`, boxShadow: "0 0 0 1px var(--iris), 0 0 18px 2px color-mix(in oklab, var(--iris) 45%, transparent)", opacity: 0.6 },
+        { width: `${toWidth}px`, boxShadow: "0 0 0 0 transparent, 0 0 0 0 transparent", opacity: 1 },
+      ],
+      { duration: MORPH_MS, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+    );
+    const tidy = () => {
+      for (const key of ["animation", "display", "white-space", "overflow", "vertical-align", "border-radius"]) style.removeProperty(key);
+    };
+    run.onfinish = tidy;
+    run.oncancel = tidy;
+  });
 }

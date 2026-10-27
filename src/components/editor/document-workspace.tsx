@@ -50,7 +50,7 @@ import { SCHEMA_VERSION, canOpen, claimSchema, documentMeta, readStyle, writeSty
 import { listSources, lookupSource, saveSource } from "@/app/(app)/projects/[projectId]/library/actions";
 import { SourceDialog } from "@/components/library/source-dialog";
 import { SlashBridge, SlashCommands, type SlashState } from "@/lib/editor/slash-commands";
-import { PasteBridge, SmartPaste, finishSmartPaste, pendingPosition } from "@/lib/editor/smart-paste";
+import { PasteBridge, SmartPaste, finishSmartPaste, growFromPill, pendingPosition, pendingWidth } from "@/lib/editor/smart-paste";
 import { identifierQuery, matchesIdentifier } from "@/lib/library/paste-identifier";
 import type { Identifier } from "@/lib/library/lookup";
 import { useModKey, usePaletteCommands, type PaletteCommand } from "@/components/app/command-palette";
@@ -63,7 +63,7 @@ import { SourcesContext } from "./sources-context";
 import { PresenceStack } from "./presence";
 import { SyncStatus } from "./sync-status";
 import { VersionsPanel } from "./versions-panel";
-import { FollowBanner, FollowContext, MarginPresence, useFollowScroll, usePositionBroadcast } from "./follow";
+import { FollowBanner, FollowContext, MarginPresence, useFollowScroll, useFollowState, usePositionBroadcast } from "./follow";
 import { Tour } from "./tour";
 
 export type WorkspaceProps = {
@@ -252,8 +252,8 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const [cited, setCited] = useState<{ ids: string[]; count: number }>({ ids: [], count: 0 });
   const [checking, setChecking] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [following, setFollowing] = useState<string | null>(null);
-  const followValue = useMemo(() => ({ following, follow: setFollowing }), [following]);
+  const followValue = useFollowState();
+  const setFollowing = followValue.follow;
   const [touring, setTouring] = useState(false);
   const page = useRef<HTMLDivElement>(null);
   const toast = useToast();
@@ -427,7 +427,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       list.push({ id: `follow-${id}`, label: `Follow ${name}`, hint: "Scroll with them through the manuscript", keywords: "presence watch", icon: <Eye className="h-4 w-4" />, perform: () => setFollowing(id) });
     }
     return list;
-  }, [canCite, startCiting, download, people, mod]);
+  }, [canCite, startCiting, download, people, mod, setFollowing]);
   usePaletteCommands("Here", commands);
 
   // Count words, and after a pause ask the server to copy the live text into Supabase (and
@@ -491,12 +491,15 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   useEffect(() => {
     pasteBridge.setHandler(async (ident: Identifier, pending: { id: string; text: string }) => {
       if (!editor) return;
-      const land = (fn: (at: number) => void) => {
+      const land = (fn: (at: number) => void, morph = false) => {
         // The person may have left the manuscript while the paper was looked up.
         if (editor.isDestroyed) return;
         const at = pendingPosition(editor.state, pending.id);
+        const width = morph ? pendingWidth(editor.view, pending.id) : null;
         finishSmartPaste(editor.view, pending.id);
-        if (at !== null) fn(at);
+        if (at === null) return;
+        fn(at);
+        if (width) growFromPill(editor.view, at, width);
       };
       const asText = (title: string, description: string) => {
         // A text node, so the link goes in exactly as pasted and isn't parsed as HTML.
@@ -504,7 +507,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         announce(`${title}. ${description}`);
         toast({ tone: "error", title, description });
       };
-      const cite = (source: Source) => land((at) => insert([{ sourceId: source.id }], "parenthetical", source, at));
+      const cite = (source: Source) => land((at) => insert([{ sourceId: source.id }], "parenthetical", source, at), true);
 
       announce(`Looking up ${pending.text}`);
       const existing = live.find((s) => matchesIdentifier(s, ident));

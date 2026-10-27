@@ -43,7 +43,7 @@ export function PresenceStack({ compact = false }: { compact?: boolean }) {
               exit={{ opacity: 0, scale: 0.4, y: 8 }}
               whileHover={{ y: -2 }}
               transition={SPRING.pop}
-              onClick={() => follow(following === p.id ? null : p.id)}
+              onClick={(e) => follow(following === p.id ? null : p.id, e.currentTarget)}
               aria-pressed={following === p.id}
               aria-label={following === p.id ? `Stop following ${p.name}` : `Follow ${p.name}`}
               title={following === p.id ? `Following ${p.name}. Click to stop` : `${p.name}. Click to follow`}
