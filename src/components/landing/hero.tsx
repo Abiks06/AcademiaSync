@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { Fragment, useRef } from "react";
 import { motion, useScroll, useSpring, useTransform } from "motion/react";
 import { ArrowRight } from "lucide-react";
 import { LiveManuscript } from "./live-manuscript";
@@ -33,11 +33,14 @@ export function Hero() {
         </div>
 
         <h1 className="max-w-4xl font-serif text-[clamp(2.6rem,7vw,5.4rem)] leading-[1.02] font-medium tracking-[-0.02em]">
+          {/* Real spaces between the words, so copied text and screen readers get "Write the paper". */}
           {FIRST_LINE.map((word, i) => (
-            <span key={i} className="rise inline-block pr-[0.25em]" style={{ "--i": i + 1 } as React.CSSProperties}>
-              {word}
-            </span>
-          ))}{" "}
+            <Fragment key={i}>
+              <span className="rise inline-block" style={{ "--i": i + 1 } as React.CSSProperties}>
+                {word}
+              </span>{" "}
+            </Fragment>
+          ))}
           <span className="rise inline-block" style={{ "--i": FIRST_LINE.length + 1 } as React.CSSProperties}>
             <span className="text-gradient-phrase italic">{SECOND_LINE}</span>
           </span>
