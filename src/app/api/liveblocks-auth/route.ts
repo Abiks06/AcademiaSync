@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   // If the room lost its text (a new Liveblocks project, say), put the saved copy back
   // before this editor connects to an empty document.
-  await restoreLostRoom(documentId);
+  await restoreLostRoom(documentId, supabase);
 
   const session = getLiveblocks().prepareSession(user.id, {
     userInfo: {

@@ -154,6 +154,11 @@ export type Database = {
         };
         Returns: string | null;
       };
+      member_save_document_state: {
+        Args: Omit<Database["public"]["Functions"]["save_document_state"]["Args"], "p_created_by">;
+        Returns: string | null;
+      };
+      member_document_state: { Args: { p_document: string }; Returns: string | null };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };
     CompositeTypes: { [_ in never]: never };

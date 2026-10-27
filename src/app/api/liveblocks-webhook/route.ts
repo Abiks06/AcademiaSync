@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
   if (!documentId) return NextResponse.json({ ok: true });
 
   try {
-    await saveLiveDocument(documentId, { auto: true });
+    await saveLiveDocument(documentId, null, { auto: true });
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("[liveblocks-webhook] save failed", documentId, error);

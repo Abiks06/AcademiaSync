@@ -257,6 +257,35 @@ describe("server-side document state", () => {
   });
 });
 
+describe("saving as the signed-in person", () => {
+  const memberSave = (as: string, doc: string, version?: { content: unknown; label: string }) =>
+    db.as<{ id: string | null }>(
+      as,
+      "select public.member_save_document_state($1, '\\x0a0b'::bytea, 'member text', '[]'::jsonb, $2, $3) as id",
+      [doc, version ? JSON.stringify(version.content) : null, version?.label ?? null],
+    );
+
+  it("lets people who can edit save, always in their own name", async () => {
+    const doc = await db.document(projectId, ada);
+    const saved = await memberSave(cy, doc, { content: { type: "doc" }, label: "By Cy" });
+    expect(saved.rows[0].id).toBeTruthy();
+    const { rows } = await db.as<{ label: string; created_by: string }>(dee, "select label, created_by from public.document_versions where document_id = $1", [doc]);
+    expect(rows).toEqual([{ label: "By Cy", created_by: cy }]);
+    const state = await db.as<{ ydoc: string }>(dee, "select encode(public.member_document_state($1), 'hex') as ydoc", [doc]);
+    expect(state.rows[0].ydoc).toBe("0a0b");
+  });
+
+  it("refuses commenters and outsiders", async () => {
+    await expectCode(memberSave(dee, documentId), PG.insufficientPrivilege);
+    await expectCode(memberSave(eve, documentId), PG.insufficientPrivilege);
+    await expectCode(db.as(eve, "select public.member_document_state($1)", [documentId]), PG.insufficientPrivilege);
+  });
+
+  it("refuses an unknown document", async () => {
+    await expectCode(memberSave(ada, "00000000-0000-0000-0000-000000000000"), PG.insufficientPrivilege);
+  });
+});
+
 describe("invite links", () => {
   it("shows a preview for the right token only, without the full address", async () => {
     const { rows } = await db.as<{ token: string }>(ben, "insert into public.project_invites (project_id, email, role) values ($1, 'zoe@uni.edu', 'contributor') returning token", [projectId]);

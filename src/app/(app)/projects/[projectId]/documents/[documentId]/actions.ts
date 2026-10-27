@@ -5,7 +5,8 @@ import { z } from "zod";
 import { getUser } from "@/lib/supabase/server";
 import { AuthUnavailableError } from "@/lib/supabase/auth-errors";
 import { userColor } from "@/lib/liveblocks/rooms";
-import { isServerSavingConfigured, restoreVersion, saveLiveDocument } from "@/lib/documents/live-document";
+import { restoreVersion, saveLiveDocument } from "@/lib/documents/live-document";
+import { isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { isRestorable } from "@/lib/editor/ydoc";
 
 export type ActionResult = { ok: true; savedVersionId?: string | null } | { ok: false; error: string };
@@ -64,7 +65,7 @@ async function editableDocument(supabase: Awaited<ReturnType<typeof getUser>>["s
   return { ok: true as const, document };
 }
 
-const NOT_CONFIGURED = "Saving history needs SUPABASE_SECRET_KEY on the server. Your text is safe in the live document.";
+const NOT_CONFIGURED = "Saving history needs live editing (LIVEBLOCKS_SECRET_KEY) on the server. Your text is safe in the live document.";
 
 /**
  * Saves a named version. The server reads the text from the live document itself, so a
@@ -73,7 +74,7 @@ const NOT_CONFIGURED = "Saving history needs SUPABASE_SECRET_KEY on the server. 
 export async function saveVersion(input: { documentId: string; label?: string }): Promise<ActionResult> {
   if (!uuid.safeParse(input.documentId).success) return { ok: false, error: "Unknown document." };
   const label = String(input.label ?? "").trim().slice(0, 120) || "Saved version";
-  if (!isServerSavingConfigured()) return { ok: false, error: NOT_CONFIGURED };
+  if (!isLiveblocksConfigured()) return { ok: false, error: NOT_CONFIGURED };
 
   const auth = await session();
   if (!auth.ok) return auth;
@@ -81,7 +82,7 @@ export async function saveVersion(input: { documentId: string; label?: string })
   if (!allowed.ok) return allowed;
 
   try {
-    const id = await saveLiveDocument(input.documentId, { label, createdBy: auth.user.id });
+    const id = await saveLiveDocument(input.documentId, auth.supabase, { label, createdBy: auth.user.id });
     return { ok: true, savedVersionId: id };
   } catch (error) {
     console.error("[saveVersion]", error);
@@ -96,13 +97,13 @@ export async function saveVersion(input: { documentId: string; label?: string })
  */
 export async function syncDocument(documentId: string): Promise<ActionResult> {
   if (!uuid.safeParse(documentId).success) return { ok: false, error: "Unknown document." };
-  if (!isServerSavingConfigured()) return { ok: true, savedVersionId: null };
+  if (!isLiveblocksConfigured()) return { ok: true, savedVersionId: null };
   const auth = await session();
   if (!auth.ok) return auth;
   const allowed = await editableDocument(auth.supabase, documentId);
   if (!allowed.ok) return allowed;
   try {
-    return { ok: true, savedVersionId: await saveLiveDocument(documentId, { auto: true }) };
+    return { ok: true, savedVersionId: await saveLiveDocument(documentId, auth.supabase, { auto: true }) };
   } catch (error) {
     console.error("[syncDocument]", error);
     return { ok: false, error: "Couldn't copy the manuscript to the database. It is still saved live." };
@@ -115,7 +116,7 @@ export async function syncDocument(documentId: string): Promise<ActionResult> {
  */
 export async function restoreDocumentVersion(input: { documentId: string; versionId: string }): Promise<ActionResult> {
   if (!uuid.safeParse(input.documentId).success || !uuid.safeParse(input.versionId).success) return { ok: false, error: "Unknown version." };
-  if (!isServerSavingConfigured()) return { ok: false, error: NOT_CONFIGURED };
+  if (!isLiveblocksConfigured()) return { ok: false, error: NOT_CONFIGURED };
 
   const auth = await session();
   if (!auth.ok) return auth;
@@ -136,7 +137,7 @@ export async function restoreDocumentVersion(input: { documentId: string; versio
 
   try {
     const when = new Date(version.created_at).toISOString().slice(0, 16).replace("T", " ");
-    await restoreVersion(input.documentId, version.content, auth.user.id, `Before restoring ${version.label ?? "the version"} from ${when} UTC`.slice(0, 120));
+    await restoreVersion(input.documentId, auth.supabase, version.content, auth.user.id, `Before restoring ${version.label ?? "the version"} from ${when} UTC`.slice(0, 120));
     revalidatePath(`/projects/${allowed.document.project_id}`);
     return { ok: true };
   } catch (e) {

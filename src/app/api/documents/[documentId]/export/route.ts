@@ -30,7 +30,7 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/d
   const { data: document } = await supabase.from("documents").select("id, project_id, title").eq("id", documentId).maybeSingle();
   if (!document) return NextResponse.json({ error: "Document not found." }, { status: 404 });
 
-  const manuscript = await readManuscript(documentId).catch(() => null);
+  const manuscript = await readManuscript(documentId, supabase).catch(() => null);
   if (!manuscript) return NextResponse.json({ error: "Couldn't read the manuscript right now. Try again in a moment." }, { status: 503 });
   const style = isCitationStyle(manuscript.style) ? manuscript.style : "apa";
 

@@ -3,15 +3,20 @@ import * as Y from "yjs";
 import { LiveblocksError } from "@liveblocks/node";
 import { getLiveblocks, isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { roomIdFor } from "@/lib/liveblocks/rooms";
-import { adminClient, isAdminConfigured } from "@/lib/supabase/admin";
+import { canStore, readStoredState, writeStoredState, type Saver } from "@/lib/supabase/admin";
 import { citationCounts, isBlank, manuscriptJSON, plainText, replaceManuscript, type DocJSON } from "@/lib/editor/ydoc";
 import { readStyle } from "@/lib/editor/schema-version";
 
 /** Automatic versions are at most this frequent; named ones are taken whenever asked. */
 const AUTO_VERSION_GAP = "10 minutes";
 
-export function isServerSavingConfigured() {
-  return isAdminConfigured() && isLiveblocksConfigured();
+/**
+ * Whether the server can keep manuscripts. Pass the signed-in person's client: without the
+ * secret key, the server saves as them. With no one signed in (the webhook), only the
+ * secret key will do.
+ */
+export function isServerSavingConfigured(saver: Saver = null) {
+  return canStore(saver) && isLiveblocksConfigured();
 }
 
 const toHex = (bytes: Uint8Array) => `\\x${Buffer.from(bytes).toString("hex")}`;
@@ -24,10 +29,9 @@ async function readRoom(documentId: string) {
   return doc;
 }
 
-async function storedState(documentId: string) {
-  const { data, error } = await adminClient().from("document_state").select("ydoc").eq("document_id", documentId).maybeSingle();
-  if (error) throw new Error(`Couldn't read the saved manuscript: ${error.message}`);
-  return data ? fromHex(data.ydoc) : null;
+async function storedState(documentId: string, saver: Saver) {
+  const hex = await readStoredState(documentId, saver);
+  return hex ? fromHex(hex) : null;
 }
 
 type VersionRequest = { label?: string | null; createdBy?: string | null; auto?: boolean };
@@ -41,10 +45,10 @@ type VersionRequest = { label?: string | null; createdBy?: string | null; auto?:
  * (a new Liveblocks project or key). Then the saved text is put back instead of being
  * overwritten with nothing.
  */
-export async function saveLiveDocument(documentId: string, version?: VersionRequest) {
+export async function saveLiveDocument(documentId: string, saver: Saver, version?: VersionRequest) {
   const doc = await readRoom(documentId);
   if (isBlank(doc)) {
-    const stored = await storedState(documentId);
+    const stored = await storedState(documentId, saver);
     if (stored) {
       await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), stored);
       return null;
@@ -52,7 +56,7 @@ export async function saveLiveDocument(documentId: string, version?: VersionRequ
   }
 
   const json = manuscriptJSON(doc);
-  const { data, error } = await adminClient().rpc("save_document_state", {
+  const { data, error } = await writeStoredState({
     p_document: documentId,
     p_ydoc: toHex(Y.encodeStateAsUpdate(doc)),
     p_plain_text: plainText(json).slice(0, 2_000_000),
@@ -61,7 +65,7 @@ export async function saveLiveDocument(documentId: string, version?: VersionRequ
     p_label: version?.label ?? null,
     p_created_by: version?.createdBy ?? null,
     p_min_gap: version?.auto ? AUTO_VERSION_GAP : null,
-  });
+  }, saver);
   // The document was deleted while its room lived on; there is nothing to keep.
   if (error?.code === "23503") return null;
   if (error) throw new Error(`Couldn't save the manuscript: ${error.message}`);
@@ -74,11 +78,9 @@ export async function saveLiveDocument(documentId: string, version?: VersionRequ
  * only that the room exists, so it is cheap enough to run before every token. Never
  * throws: opening the editor matters more.
  */
-export async function restoreLostRoom(documentId: string) {
-  if (!isServerSavingConfigured()) return;
+export async function restoreLostRoom(documentId: string, saver: Saver) {
+  if (!isServerSavingConfigured(saver)) return;
   try {
-    const saved = await adminClient().from("document_state").select("document_id").eq("document_id", documentId).maybeSingle();
-    if (!saved.data) return;
     const exists = await getLiveblocks()
       .getRoom(roomIdFor(documentId))
       .then(() => true)
@@ -87,7 +89,7 @@ export async function restoreLostRoom(documentId: string) {
         throw error;
       });
     if (exists) return;
-    const stored = await storedState(documentId);
+    const stored = await storedState(documentId, saver);
     if (!stored) return;
     await getLiveblocks().createRoom(roomIdFor(documentId), { defaultAccesses: [] });
     await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), stored);
@@ -100,24 +102,24 @@ export async function restoreLostRoom(documentId: string) {
  * Replaces the live manuscript with a version, as one change everyone's editor applies
  * together. The current text is saved as a version first, so a restore can be undone.
  */
-export async function restoreVersion(documentId: string, content: DocJSON, restoredBy: string, label: string) {
-  await saveLiveDocument(documentId, { label, createdBy: restoredBy });
+export async function restoreVersion(documentId: string, saver: Saver, content: DocJSON, restoredBy: string, label: string) {
+  await saveLiveDocument(documentId, saver, { label, createdBy: restoredBy });
   const doc = await readRoom(documentId);
   const before = Y.encodeStateVector(doc);
   replaceManuscript(doc, content);
   await getLiveblocks().sendYjsBinaryUpdate(roomIdFor(documentId), Y.encodeStateAsUpdate(doc, before));
-  await saveLiveDocument(documentId);
+  await saveLiveDocument(documentId, saver);
 }
 
 /**
  * The manuscript as it is now, for export: from the live room, or from Supabase's copy if
  * Liveblocks can't be reached. Includes the document's citation style.
  */
-export async function readManuscript(documentId: string) {
+export async function readManuscript(documentId: string, saver: Saver) {
   let doc: Y.Doc | null = null;
   if (isLiveblocksConfigured()) doc = await readRoom(documentId).catch(() => null);
-  if ((!doc || isBlank(doc)) && isAdminConfigured()) {
-    const stored = await storedState(documentId);
+  if ((!doc || isBlank(doc)) && canStore(saver)) {
+    const stored = await storedState(documentId, saver);
     if (stored) {
       doc = new Y.Doc();
       Y.applyUpdate(doc, stored);
