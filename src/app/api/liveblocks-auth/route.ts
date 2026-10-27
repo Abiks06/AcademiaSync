@@ -62,8 +62,9 @@ export async function POST(request: NextRequest) {
     },
   });
   const room = body!.room as string;
-  // Commenters and reviewers can read the text and leave comments, but not change it.
-  session.allow(room, canEditRole(membership.role) ? ["*:write"] : ["*:read", "comments:write"]);
+  // Commenters and reviewers can read the text and leave comments, but not change it. They
+  // still share where they are, so co-authors see them in the margin and can follow them.
+  session.allow(room, canEditRole(membership.role) ? ["*:write"] : ["*:read", "comments:write", "room:presence:write"]);
 
   const { status, body: token } = await session.authorize();
   return new NextResponse(token, { status, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });

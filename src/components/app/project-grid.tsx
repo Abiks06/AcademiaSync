@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState, ViewTransition } from "react";
+import { useActionState, useEffect, useState, ViewTransition } from "react";
+import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
-import { FileText, Loader2, Plus, Users, X } from "lucide-react";
+import { FileText, FlaskConical, Loader2, Plus, Users, X } from "lucide-react";
 import { createProject, type FormState } from "@/app/(app)/projects/actions";
+import { createSampleProject } from "@/app/(app)/projects/sample-actions";
+import { useToast } from "@/components/ui/toast";
 import { TiltCard } from "@/components/motion/primitives";
 import { SPRING } from "@/components/motion/tokens";
 import { Dialog } from "@/components/ui/dialog";
@@ -25,6 +28,16 @@ type ProjectCard = {
 
 export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
   const [creating, setCreating] = useState(false);
+  // The ⌘K palette's "New project" opens the dialog here, or arrives as ?new=1 from another page.
+  useEffect(() => {
+    const open = () => setCreating(true);
+    if (new URLSearchParams(window.location.search).get("new") === "1") {
+      window.history.replaceState(window.history.state, "", "/projects");
+      open();
+    }
+    window.addEventListener("academiasync:new-project", open);
+    return () => window.removeEventListener("academiasync:new-project", open);
+  }, []);
 
   return (
     <div className="mx-auto max-w-6xl">
@@ -130,10 +143,44 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         A project holds one piece of research: its manuscripts, sources, files, tasks and the people
         writing it with you.
       </p>
-      <button onClick={onCreate} className="mt-6 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg transition-transform hover:scale-105">
-        Create a project
-      </button>
+      <div className="mt-6 flex flex-wrap justify-center gap-2">
+        <button onClick={onCreate} className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg transition-transform hover:scale-105">
+          Create a project
+        </button>
+        <SampleButton />
+      </div>
+      <p className="mt-4 max-w-sm text-xs text-faint">
+        The sample is a short review draft with five real papers already cited, and a quick tour of the editor.
+      </p>
     </motion.div>
+  );
+}
+
+function SampleButton() {
+  const router = useRouter();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  // One sample however many times this is clicked.
+  const [requestId] = useState(() => crypto.randomUUID());
+  return (
+    <button
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          const result = await createSampleProject(requestId);
+          if (result.ok) return router.push(result.href);
+          toast({ tone: "error", title: "Couldn't create the sample project", description: result.error });
+        } catch {
+          toast({ tone: "error", title: "Couldn't reach AcademiaSync", description: "Check your connection and try again." });
+        }
+        setBusy(false);
+      }}
+      className="inline-flex items-center gap-2 rounded-full border border-line-strong px-5 py-2.5 text-sm font-semibold transition-colors hover:border-iris hover:text-iris disabled:opacity-70"
+    >
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4 text-iris" />}
+      {busy ? "Setting it up" : "Explore a sample project"}
+    </button>
   );
 }
 

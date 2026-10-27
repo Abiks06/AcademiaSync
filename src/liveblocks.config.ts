@@ -6,6 +6,10 @@ declare global {
       schema?: number;
       /** When this person last typed (ms since epoch), so their avatar can pulse for others. */
       typingAt?: number;
+      /** The top-level block (paragraph, heading…) this person's cursor is in, for the margin markers. */
+      block?: number;
+      /** What this person is looking at: the block at the top of their screen, and how far into it. Followers scroll to match. */
+      view?: { block: number; offset: number };
     };
     UserMeta: {
       id: string;

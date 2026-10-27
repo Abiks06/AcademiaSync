@@ -168,3 +168,28 @@ export async function readManuscript(documentId: string, saver: Saver) {
   if (!doc) return null;
   return { json: manuscriptJSON(doc), style: readStyle(doc) };
 }
+
+/**
+ * Gives a brand-new document its first text, e.g. the sample project's manuscript. It goes
+ * into Supabase with a version for history; the room is filled from it when someone first
+ * opens the document (restoreLostRoom). Returns false if it couldn't be saved.
+ */
+export async function seedDocument(documentId: string, saver: Saver, content: DocJSON, label: string, createdBy: string) {
+  if (!canStore(saver)) return false;
+  const doc = new Y.Doc();
+  replaceManuscript(doc, content);
+  const json = manuscriptJSON(doc);
+  const { error } = await writeStoredState({
+    p_document: documentId,
+    p_ydoc: toHex(Y.encodeStateAsUpdate(doc)),
+    p_plain_text: plainText(json).slice(0, 2_000_000),
+    p_citations: [...citationCounts(json)].map(([sourceId, count]) => ({ sourceId, count })),
+    p_version_content: json,
+    p_label: label,
+    p_created_by: createdBy,
+    p_min_gap: null,
+    p_base_revision: null,
+  }, saver);
+  if (error) console.error("[live-document] couldn't seed", documentId, error);
+  return !error;
+}

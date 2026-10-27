@@ -9,11 +9,20 @@ import { citeContext, type CiteContext } from "@/lib/library/styles";
  * `checking` is true while the editor is catching up with the library, so a citation of a
  * source a co-author just added isn't flagged as missing before the editor has seen it.
  * `cite` holds the document's style and the numbering of everything it cites.
+ * `editCitation` opens the citation picker on the citation at a position, when citing is allowed.
  */
-export const SourcesContext = createContext<{ byId: Map<string, Source>; checking: boolean; cite: CiteContext }>({
+export const SourcesContext = createContext<{
+  byId: Map<string, Source>;
+  checking: boolean;
+  cite: CiteContext;
+  projectId: string;
+  editCitation: ((pos: number) => void) | null;
+}>({
   byId: new Map(),
   checking: false,
   cite: citeContext("apa", [], () => undefined),
+  projectId: "",
+  editCitation: null,
 });
 
 export function useSources() {
