@@ -11,7 +11,9 @@ import {
 } from "motion/react";
 import { clsx } from "clsx";
 
-export const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const;
+import { EASE_OUT } from "./tokens";
+
+export const EASE_OUT_EXPO = EASE_OUT;
 
 export const fadeUp: Variants = {
   hidden: { opacity: 0, y: 24, filter: "blur(6px)" },
@@ -28,7 +30,10 @@ export const stagger = (delayChildren = 0, staggerChildren = 0.08): Variants => 
   show: { transition: { delayChildren, staggerChildren } },
 });
 
-/** Reveals children once when scrolled into view. Content is visible without JS. */
+/**
+ * Reveals children once when scrolled into view. Without JavaScript the content is simply
+ * visible (see `[data-reveal]` in globals.css).
+ */
 export function Reveal({
   className,
   delay = 0,
@@ -43,6 +48,7 @@ export function Reveal({
   const Component = motion[as];
   return (
     <Component
+      data-reveal
       className={className}
       initial="hidden"
       whileInView="show"
@@ -81,7 +87,7 @@ export function MagneticButton({
       style={{ x: sx, y: sy }}
       onPointerMove={(e) => {
         const r = ref.current?.getBoundingClientRect();
-        if (!r) return;
+        if (!r || e.pointerType !== "mouse") return;
         x.set((e.clientX - (r.left + r.width / 2)) * strength);
         y.set((e.clientY - (r.top + r.height / 2)) * strength);
       }}
@@ -114,7 +120,7 @@ export function TiltCard({ className, children }: { className?: string; children
       ref={ref}
       onPointerMove={(e) => {
         const r = ref.current?.getBoundingClientRect();
-        if (!r) return;
+        if (!r || e.pointerType !== "mouse") return;
         px.set((e.clientX - r.left) / r.width);
         py.set((e.clientY - r.top) / r.height);
       }}

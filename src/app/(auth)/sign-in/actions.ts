@@ -1,25 +1,18 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getSupabaseEnv } from "@/lib/env";
-import { friendlyAuthError, safeNext } from "@/lib/auth-redirect";
+import { siteOrigin } from "@/lib/site-url";
+import { authErrorCode, friendlyAuthError, safeNext } from "@/lib/auth-redirect";
 
 export type SignInState = { status: "idle" | "sent" | "error"; message?: string; email?: string };
 
 const emailSchema = z.string().trim().toLowerCase().email("Enter a valid email address.");
 
 async function callbackUrl(next: string) {
-  // A fixed site URL is safest in production; otherwise use the origin the form was posted from.
-  let origin = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
-  if (!origin) {
-    const h = await headers();
-    const proto = h.get("x-forwarded-proto") ?? (h.get("host")?.startsWith("localhost") ? "http" : "https");
-    origin = h.get("origin") ?? `${proto}://${h.get("host")}`;
-  }
-  return `${origin}/auth/callback?next=${encodeURIComponent(next)}`;
+  return `${await siteOrigin()}/auth/callback?next=${encodeURIComponent(next)}`;
 }
 
 export async function sendMagicLink(_prev: SignInState, formData: FormData): Promise<SignInState> {
@@ -45,8 +38,7 @@ export async function signInWithProvider(formData: FormData) {
   // Supabase answers a disabled provider with a raw JSON error page, so check first.
   const next = safeNext(formData.get("next"));
   if (!(await isProviderEnabled(provider))) {
-    const name = provider === "google" ? "Google" : "Microsoft";
-    const params = new URLSearchParams({ error: `${name} sign-in isn't available yet. Use your email instead.` });
+    const params = new URLSearchParams({ error: provider === "google" ? "google_off" : "azure_off" });
     if (next !== "/projects") params.set("next", next);
     redirect(`/sign-in?${params}`);
   }
@@ -59,7 +51,7 @@ export async function signInWithProvider(formData: FormData) {
       scopes: provider === "azure" ? "email" : undefined,
     },
   });
-  if (error) redirect(`/sign-in?error=${encodeURIComponent(friendlyAuthError(error))}`);
+  if (error) redirect(`/sign-in?error=${authErrorCode(error)}`);
   redirect(data.url);
 }
 

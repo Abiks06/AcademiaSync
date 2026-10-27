@@ -23,7 +23,9 @@ truth per piece of data, and nothing that fakes success.**
 - Signed-in workspace: project list, create project, project overview, add manuscripts
 - Database schema with row-level security (`supabase/migrations`)
 - Live editor: real-time co-writing with cursors, presence, comments and version history
-- CI that lints, type-checks and builds every pull request
+- Reference library per project: add sources by DOI (Crossref) or by hand, search, copy APA references, export BibTeX
+- In-text citations from the editor (Ctrl/Cmd+Shift+K) and a live bibliography panel
+- CI that lints, type-checks, tests and builds every pull request
 
 ## Set up
 
@@ -54,6 +56,7 @@ npm run dev
 | `npm run build` | Production build |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | Generate route types and run TypeScript |
+| `npm test` | Unit tests (vitest) |
 
 ## Project layout
 

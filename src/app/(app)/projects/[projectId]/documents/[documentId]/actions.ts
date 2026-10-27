@@ -5,11 +5,12 @@ import { z } from "zod";
 import { getUser } from "@/lib/supabase/server";
 import { AuthUnavailableError } from "@/lib/supabase/auth-errors";
 import { userColor } from "@/lib/liveblocks/rooms";
+import { restoreVersion, saveLiveDocument } from "@/lib/documents/live-document";
+import { isLiveblocksConfigured } from "@/lib/liveblocks/server";
+import { dbErrorMessage } from "@/lib/supabase/db-errors";
+import { isRestorable } from "@/lib/editor/ydoc";
 
 export type ActionResult = { ok: true; savedVersionId?: string | null } | { ok: false; error: string };
-
-const MAX_SNAPSHOT_BYTES = 4_000_000;
-const AUTOSAVE_MIN_GAP_MS = 5 * 60_000;
 
 const uuid = z.string().uuid();
 
@@ -46,7 +47,7 @@ export async function updateDocumentDetails(input: z.input<typeof detailsSchema>
     .eq("id", documentId)
     .select("project_id")
     .maybeSingle();
-  if (error) return { ok: false, error: `Couldn't save: ${error.message}` };
+  if (error) return { ok: false, error: dbErrorMessage(error, "save") };
   // No row back means row-level security refused the change.
   if (!data) return { ok: false, error: "You don't have permission to change this manuscript." };
 
@@ -54,58 +55,96 @@ export async function updateDocumentDetails(input: z.input<typeof detailsSchema>
   return { ok: true };
 }
 
-const snapshotSchema = z.object({
-  documentId: uuid,
-  label: z.string().trim().max(120).optional(),
-  content: z.unknown(),
-  plainText: z.string().max(2_000_000),
-  /** Autosaves are skipped when nothing changed or a snapshot was taken recently. */
-  auto: z.boolean().default(false),
-});
+/** The document, if this user may change it. Row-level security hides other projects' documents. */
+async function editableDocument(supabase: Awaited<ReturnType<typeof getUser>>["supabase"], documentId: string) {
+  const { data: document, error } = await supabase.from("documents").select("id, project_id").eq("id", documentId).maybeSingle();
+  if (error) return { ok: false as const, error: "Couldn't check your access. Try again." };
+  if (!document) return { ok: false as const, error: "This manuscript no longer exists." };
+  const { data: canEdit, error: roleError } = await supabase.rpc("can_edit_project", { p_project: document.project_id });
+  if (roleError) return { ok: false as const, error: "Couldn't check your access. Try again." };
+  if (!canEdit) return { ok: false as const, error: "You can read this manuscript but not change it." };
+  return { ok: true as const, document };
+}
 
-/** Saves a snapshot of the manuscript for history, search and export. */
-export async function saveVersion(input: z.input<typeof snapshotSchema>): Promise<ActionResult> {
-  const parsed = snapshotSchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "That snapshot couldn't be read." };
-  const { documentId, label, content, plainText, auto } = parsed.data;
-  if (JSON.stringify(content ?? null).length > MAX_SNAPSHOT_BYTES) {
-    return { ok: false, error: "This manuscript is too large to snapshot." };
-  }
+const NOT_CONFIGURED = "Saving history needs live editing (LIVEBLOCKS_SECRET_KEY) on the server. Your text is safe in the live document.";
+
+/**
+ * Saves a named version. The server reads the text from the live document itself, so a
+ * version is always exactly what everyone was looking at, whatever the browser sends.
+ */
+export async function saveVersion(input: { documentId: string; label?: string }): Promise<ActionResult> {
+  if (!uuid.safeParse(input.documentId).success) return { ok: false, error: "Unknown document." };
+  const label = String(input.label ?? "").trim().slice(0, 120) || "Saved version";
+  if (!isLiveblocksConfigured()) return { ok: false, error: NOT_CONFIGURED };
 
   const auth = await session();
   if (!auth.ok) return auth;
-  const { supabase } = auth;
+  const allowed = await editableDocument(auth.supabase, input.documentId);
+  if (!allowed.ok) return allowed;
 
-  const { data: latest, error: latestError } = await supabase
+  try {
+    const id = await saveLiveDocument(input.documentId, auth.supabase, { label, createdBy: auth.user.id });
+    return { ok: true, savedVersionId: id };
+  } catch (error) {
+    console.error("[saveVersion]", error);
+    return { ok: false, error: "Couldn't save this version. Try again in a moment." };
+  }
+}
+
+/**
+ * An open editor asks for this after a pause in typing, in case the Liveblocks webhook isn't
+ * set up or is behind. It copies the live text to Supabase and adds an automatic version
+ * when one is due; it never sends the text itself.
+ */
+export async function syncDocument(documentId: string): Promise<ActionResult> {
+  if (!uuid.safeParse(documentId).success) return { ok: false, error: "Unknown document." };
+  if (!isLiveblocksConfigured()) return { ok: true, savedVersionId: null };
+  const auth = await session();
+  if (!auth.ok) return auth;
+  const allowed = await editableDocument(auth.supabase, documentId);
+  if (!allowed.ok) return allowed;
+  try {
+    return { ok: true, savedVersionId: await saveLiveDocument(documentId, auth.supabase, { auto: true }) };
+  } catch (error) {
+    console.error("[syncDocument]", error);
+    return { ok: false, error: "Couldn't copy the manuscript to the database. It is still saved live." };
+  }
+}
+
+/**
+ * Restores a version for everyone, on the server, as a single change. The text as it is now
+ * is saved as a version first, so the restore can itself be undone.
+ */
+export async function restoreDocumentVersion(input: { documentId: string; versionId: string }): Promise<ActionResult> {
+  if (!uuid.safeParse(input.documentId).success || !uuid.safeParse(input.versionId).success) return { ok: false, error: "Unknown version." };
+  if (!isLiveblocksConfigured()) return { ok: false, error: NOT_CONFIGURED };
+
+  const auth = await session();
+  if (!auth.ok) return auth;
+  const allowed = await editableDocument(auth.supabase, input.documentId);
+  if (!allowed.ok) return allowed;
+
+  const { data: version, error } = await auth.supabase
     .from("document_versions")
-    .select("plain_text, created_at, label")
-    .eq("document_id", documentId)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .select("content, created_at, label")
+    .eq("id", input.versionId)
+    .eq("document_id", input.documentId)
     .maybeSingle();
-  if (latestError) return { ok: false, error: `Couldn't check history: ${latestError.message}` };
-
-  if (auto) {
-    if (latest?.plain_text === plainText) return { ok: true, savedVersionId: null };
-    if (latest && Date.now() - new Date(latest.created_at).getTime() < AUTOSAVE_MIN_GAP_MS) {
-      return { ok: true, savedVersionId: null };
-    }
+  if (error) return { ok: false, error: "Couldn't load that version. Try again." };
+  if (!version) return { ok: false, error: "That version no longer exists." };
+  if (!isRestorable(version.content)) {
+    return { ok: false, error: "That version contains content this editor can't show, so it wasn't restored. Nothing changed." };
   }
 
-  const { data, error } = await supabase
-    .from("document_versions")
-    .insert({
-      document_id: documentId,
-      label: label || null,
-      content: content as never,
-      plain_text: plainText,
-      // created_by is filled by the column default (auth.uid()); clients may not write it.
-    })
-    .select("id")
-    .single();
-  if (error) return { ok: false, error: `Couldn't save this version: ${error.message}` };
-
-  return { ok: true, savedVersionId: data.id };
+  try {
+    const when = new Date(version.created_at).toISOString().slice(0, 16).replace("T", " ");
+    await restoreVersion(input.documentId, auth.supabase, version.content, auth.user.id, `Before restoring ${version.label ?? "the version"} from ${when} UTC`.slice(0, 120));
+    revalidatePath(`/projects/${allowed.document.project_id}`);
+    return { ok: true };
+  } catch (e) {
+    console.error("[restoreDocumentVersion]", e);
+    return { ok: false, error: "Couldn't restore that version. The manuscript wasn't changed; try again." };
+  }
 }
 
 export type VersionRow = {
@@ -128,7 +167,7 @@ export async function listVersions(documentId: string): Promise<{ versions: Vers
     .eq("document_id", documentId)
     .order("created_at", { ascending: false })
     .limit(30);
-  if (error) return { versions: [], error: `Couldn't load history: ${error.message}` };
+  if (error) return { versions: [], error: dbErrorMessage(error, "load history") };
 
   const authorIds = [...new Set((data ?? []).map((v) => v.created_by).filter((id): id is string => !!id))];
   const { data: profiles } = authorIds.length
@@ -145,17 +184,6 @@ export async function listVersions(documentId: string): Promise<{ versions: Vers
       preview: v.plain_text.replace(/\s+/g, " ").trim().slice(0, 140),
     })),
   };
-}
-
-/** The stored content of one snapshot, for restoring it into the live document. */
-export async function getVersionContent(versionId: string): Promise<{ content?: unknown; error?: string }> {
-  if (!uuid.safeParse(versionId).success) return { error: "Unknown version." };
-  const auth = await session();
-  if (!auth.ok) return { error: auth.error };
-  const { data, error } = await auth.supabase.from("document_versions").select("content").eq("id", versionId).maybeSingle();
-  if (error) return { error: `Couldn't load that version: ${error.message}` };
-  if (!data) return { error: "That version no longer exists." };
-  return { content: data.content };
 }
 
 /** Names and avatars for the people shown in cursors and comments. Teammates only, by row-level security. */

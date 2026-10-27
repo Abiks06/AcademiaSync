@@ -11,6 +11,8 @@ let timer: ReturnType<typeof setInterval> | undefined;
 function subscribe(listener: () => void) {
   listeners.add(listener);
   if (!timer) {
+    // The clock stopped while nothing was listening, so it may be hours old.
+    now = Date.now();
     timer = setInterval(() => {
       now = Date.now();
       listeners.forEach((l) => l());

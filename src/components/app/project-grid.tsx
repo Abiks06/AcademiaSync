@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState, ViewTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { AnimatePresence, motion } from "motion/react";
 import { FileText, Loader2, Plus, Users, X } from "lucide-react";
 import { createProject, type FormState } from "@/app/(app)/projects/actions";
 import { TiltCard } from "@/components/motion/primitives";
+import { SPRING } from "@/components/motion/tokens";
+import { Dialog } from "@/components/ui/dialog";
 import { ACCENTS, accentColor, type Accent } from "./accent";
 import { TimeAgo } from "./time-ago";
 
@@ -65,20 +67,23 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
             >
               <Link href={`/projects/${p.id}`} className="block h-full">
                 <TiltCard className="glass h-full overflow-hidden rounded-2xl">
-                  <div
-                    className="h-24 w-full"
-                    style={{
-                      background: `radial-gradient(120% 140% at 0% 0%, ${accentColor(p.accent)}, transparent 60%), radial-gradient(100% 120% at 100% 100%, var(--iris-soft), transparent 70%)`,
-                      opacity: 0.55,
-                    }}
-                  />
+                  {/* Morphs into the project page's header when the card is opened. */}
+                  <ViewTransition name={`project-${p.id}`} share="morph" default="none">
+                    <div
+                      className="h-24 w-full"
+                      style={{
+                        background: `radial-gradient(120% 140% at 0% 0%, ${accentColor(p.accent)}, transparent 60%), radial-gradient(100% 120% at 100% 100%, var(--iris-soft), transparent 70%)`,
+                        opacity: 0.55,
+                      }}
+                    />
+                  </ViewTransition>
                   <div className="relative p-5">
                     {p.field && <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">{p.field}</p>}
                     <h2 className="mt-1 text-lg font-semibold tracking-tight">{p.name}</h2>
                     {p.description && <p className="mt-1.5 line-clamp-2 text-sm text-muted">{p.description}</p>}
                     <div className="mt-5 flex items-center gap-4 text-xs text-faint">
-                      <span className="flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />{p.documents}</span>
-                      <span className="flex items-center gap-1.5"><Users className="h-3.5 w-3.5" />{p.members}</span>
+                      <span className="flex items-center gap-1.5" aria-label={`${p.documents} ${p.documents === 1 ? "manuscript" : "manuscripts"}`}><FileText className="h-3.5 w-3.5" aria-hidden />{p.documents}</span>
+                      <span className="flex items-center gap-1.5" aria-label={`${p.members} ${p.members === 1 ? "member" : "members"}`}><Users className="h-3.5 w-3.5" aria-hidden />{p.members}</span>
                       <span className="ml-auto"><TimeAgo iso={p.updatedAt} prefix="Updated " /></span>
                     </div>
                   </div>
@@ -133,78 +138,60 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 }
 
 function CreateProjectDialog({ onClose }: { onClose: () => void }) {
-  const [state, action] = useActionState<FormState, FormData>(createProject, {});
+  const [state, action, pending] = useActionState<FormState, FormData>(createProject, {});
   const [accent, setAccent] = useState<Accent>("iris");
+  const [dirty, setDirty] = useState(false);
   // One key per dialog: if the same project is submitted twice, the server returns the first one.
   const [requestId] = useState(newRequestId);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
-    <motion.div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4 backdrop-blur-sm"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
+    <Dialog
+      onClose={() => !pending && onClose()}
+      labelledBy="new-project-title"
+      dirty={dirty && !pending}
+      className="w-full max-w-lg overflow-hidden rounded-2xl border border-line bg-bg-elev shadow-2xl"
     >
       <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-project-title"
-        onClick={(e) => e.stopPropagation()}
-        initial={{ opacity: 0, y: 30, scale: 0.96 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.97 }}
-        transition={{ type: "spring", stiffness: 340, damping: 30 }}
-        className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-line bg-bg-elev shadow-2xl"
-      >
-        <motion.div
-          aria-hidden
-          className="absolute -top-24 -right-24 h-56 w-56 rounded-full blur-3xl"
-          animate={{ background: accentColor(accent), opacity: 0.35 }}
-        />
-        <form action={action} className="relative grid gap-5 p-6">
-          <input type="hidden" name="requestId" value={state.requestId ?? requestId} />
-          <div className="flex items-start">
-            <h2 id="new-project-title" className="font-serif text-2xl">New research project</h2>
-            <button type="button" aria-label="Close" onClick={onClose} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-iris-soft">
-              <X className="h-4 w-4" />
-            </button>
+        aria-hidden
+        className="absolute -top-24 -right-24 h-56 w-56 rounded-full blur-3xl"
+        animate={{ background: accentColor(accent), opacity: 0.35 }}
+      />
+      <form action={action} onChange={() => setDirty(true)} className="relative grid gap-5 p-6">
+        <input type="hidden" name="requestId" value={state.requestId ?? requestId} />
+        <div className="flex items-start">
+          <h2 id="new-project-title" className="font-serif text-2xl">New research project</h2>
+          <button type="button" aria-label="Close" onClick={onClose} disabled={pending} className="ml-auto rounded-lg p-1.5 text-muted hover:bg-iris-soft">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <Field label="Project name" htmlFor="name">
+          <input id="name" name="name" defaultValue={state.values?.name} required data-autofocus maxLength={120} placeholder="Coastal microplastics study" className={inputClass} />
+        </Field>
+        <Field label="Field" htmlFor="field" hint="Optional">
+          <input id="field" name="field" defaultValue={state.values?.field} maxLength={80} placeholder="Marine biology" className={inputClass} />
+        </Field>
+        <Field label="What is it about?" htmlFor="description" hint="Optional">
+          <textarea id="description" name="description" defaultValue={state.values?.description} rows={3} maxLength={600} className={`${inputClass} h-auto py-3`} />
+        </Field>
+        <fieldset>
+          <legend className="mb-2 text-sm font-medium">Colour</legend>
+          <div className="flex gap-2">
+            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
+              <label key={a} className="relative cursor-pointer rounded-full has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-iris has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-bg-elev">
+                <input type="radio" name="accent" value={a} checked={accent === a} onChange={() => setAccent(a)} className="peer sr-only" />
+                <span className="block h-8 w-8 rounded-full" style={{ background: ACCENTS[a].color }} />
+                {accent === a && (
+                  <motion.span layoutId="accent-ring" transition={SPRING.snappy} className="absolute -inset-1 rounded-full border-2 border-ink" />
+                )}
+                <span className="sr-only">{ACCENTS[a].label}</span>
+              </label>
+            ))}
           </div>
-          <Field label="Project name" htmlFor="name">
-            <input id="name" name="name" defaultValue={state.values?.name} required autoFocus maxLength={120} placeholder="Coastal microplastics study" className={inputClass} />
-          </Field>
-          <Field label="Field" htmlFor="field" hint="Optional">
-            <input id="field" name="field" defaultValue={state.values?.field} maxLength={80} placeholder="Marine biology" className={inputClass} />
-          </Field>
-          <Field label="What is it about?" htmlFor="description" hint="Optional">
-            <textarea id="description" name="description" defaultValue={state.values?.description} rows={3} maxLength={600} className={`${inputClass} h-auto py-3`} />
-          </Field>
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium">Colour</legend>
-            <div className="flex gap-2">
-              {(Object.keys(ACCENTS) as Accent[]).map((a) => (
-                <label key={a} className="relative cursor-pointer">
-                  <input type="radio" name="accent" value={a} checked={accent === a} onChange={() => setAccent(a)} className="peer sr-only" />
-                  <span className="block h-8 w-8 rounded-full ring-offset-2 ring-offset-bg-elev peer-focus-visible:ring-2 peer-focus-visible:ring-iris" style={{ background: ACCENTS[a].color }} />
-                  {accent === a && (
-                    <motion.span layoutId="accent-ring" className="absolute -inset-1 rounded-full border-2 border-ink" />
-                  )}
-                  <span className="sr-only">{ACCENTS[a].label}</span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          {state.error && <p role="alert" className="text-sm text-danger">{state.error}</p>}
-          <CreateButton />
-        </form>
-      </motion.div>
-    </motion.div>
+        </fieldset>
+        {state.error && <p role="alert" className="text-sm text-danger">{state.error}</p>}
+        <CreateButton />
+      </form>
+    </Dialog>
   );
 }
 

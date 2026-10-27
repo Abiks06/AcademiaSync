@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { useStatus, useSyncStatus } from "@liveblocks/react/suspense";
 
@@ -20,8 +20,16 @@ const COPY: Record<State, { label: string; color: string }> = {
   offline: { label: "Offline. Edits sync when you reconnect", color: "var(--danger)" },
 };
 
-export function SyncStatus() {
+export function SyncStatus({ compact = false }: { compact?: boolean }) {
   const state = useSaveState();
+  // Screen readers hear about going offline and coming back, not every keystroke's save.
+  const [announce, setAnnounce] = useState("");
+  const [last, setLast] = useState(state);
+  if (state !== last) {
+    setLast(state);
+    if (state === "offline") setAnnounce(COPY.offline.label);
+    else if (last === "offline") setAnnounce("Back online. Your changes are syncing.");
+  }
 
   // Closing the tab with unsynced edits is the one way to lose work, so warn.
   useEffect(() => {
@@ -33,7 +41,8 @@ export function SyncStatus() {
 
   const { label, color } = COPY[state];
   return (
-    <div role="status" className="flex items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3 py-1.5 text-xs text-muted">
+    <div className="flex items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3 py-1.5 text-xs text-muted" title={label}>
+      <span role="status" className="sr-only">{announce}</span>
       <span className="relative grid h-2 w-2 place-items-center">
         <motion.span
           className="absolute h-2 w-2 rounded-full"
@@ -49,8 +58,9 @@ export function SyncStatus() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -4 }}
           transition={{ duration: 0.18 }}
+          className={compact ? "sr-only sm:not-sr-only" : "hidden sm:inline"}
         >
-          {label}
+          {compact && state === "saved" ? "Saved" : label}
         </motion.span>
       </AnimatePresence>
     </div>

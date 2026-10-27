@@ -1,22 +1,27 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState, ViewTransition } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
-import { AnimatePresence, motion } from "motion/react";
-import { FileText, Loader2, Plus } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { BookMarked, FileText, Loader2, Plus, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
 import { accentColor } from "./accent";
 import { TimeAgo } from "./time-ago";
+import { MembersPanel, type Member, type PendingInvite } from "./members-panel";
 
 type Props = {
   project: { id: string; name: string; field: string | null; description: string | null; accent: string };
   documents: { id: string; title: string; status: DocumentStatus; updated_at: string }[];
-  members: { id: string; role: ProjectRole; name: string; avatarUrl: string | null; isYou: boolean }[];
+  members: Member[];
+  invites: PendingInvite[];
+  myRole: ProjectRole | null;
   /** Idempotency key for the first "add manuscript" submit. */
   requestId: string;
+  /** Whether invites go out by email, or as a link to send yourself. */
+  emailEnabled: boolean;
 };
 
 const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
@@ -25,23 +30,21 @@ const STATUS: Record<DocumentStatus, { label: string; className: string }> = {
   final: { label: "Final", className: "bg-success/15 text-success" },
 };
 
-export function ProjectOverview({ project, documents, members, requestId }: Props) {
+export function ProjectOverview({ project, documents, members, invites, myRole, requestId, emailEnabled }: Props) {
   const accent = accentColor(project.accent);
+  const [membersOpen, setMembersOpen] = useState(false);
+  const reduce = useReducedMotion();
 
   return (
     <div className="mx-auto max-w-5xl">
-      <motion.header
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-        className="grain relative overflow-hidden rounded-3xl border border-line bg-bg-elev p-8"
-      >
+      <ViewTransition name={`project-${project.id}`} share="morph" default="none">
+      <header className="grain relative overflow-hidden rounded-3xl border border-line bg-bg-elev p-8">
         <motion.div
           aria-hidden
           className="absolute -top-32 -left-20 h-72 w-72 rounded-full blur-3xl"
           style={{ background: accent }}
-          animate={{ opacity: [0.25, 0.4, 0.25], scale: [1, 1.1, 1] }}
-          transition={{ duration: 8, repeat: Infinity }}
+          animate={reduce ? { opacity: 0.3 } : { opacity: [0.25, 0.4, 0.25], scale: [1, 1.1, 1] }}
+          transition={reduce ? undefined : { duration: 8, repeat: Infinity }}
         />
         <div className="relative">
           {project.field && <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">{project.field}</p>}
@@ -62,12 +65,23 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
                 </motion.div>
               ))}
             </div>
-            <span className="ml-3 text-sm text-muted">
+            <button
+              onClick={() => setMembersOpen(true)}
+              className="ml-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm text-muted transition-colors hover:bg-iris-soft hover:text-ink"
+            >
               {members.length} {members.length === 1 ? "member" : "members"}
-            </span>
+              {(myRole === "owner" || myRole === "author") && <UserPlus className="h-3.5 w-3.5 text-iris" aria-label="Invite" />}
+            </button>
+            <Link
+              href={`/projects/${project.id}/library`}
+              className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+            >
+              <BookMarked className="h-4 w-4 text-iris" /> Library
+            </Link>
           </div>
         </div>
-      </motion.header>
+      </header>
+      </ViewTransition>
 
       <section className="mt-10">
         <div className="flex items-center gap-3">
@@ -112,6 +126,11 @@ export function ProjectOverview({ project, documents, members, requestId }: Prop
           <p className="mt-6 text-sm text-muted">No manuscripts yet. Name your first one above to start writing.</p>
         )}
       </section>
+      <AnimatePresence>
+        {membersOpen && (
+          <MembersPanel projectId={project.id} members={members} invites={invites} myRole={myRole} emailEnabled={emailEnabled} onClose={() => setMembersOpen(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -21,30 +21,30 @@ export function Features() {
           <RevealItem>
             <p className="mt-4 text-lg text-muted">
               Stop stitching together Docs, Zotero, Drive and a group chat. Each piece knows about the
-              others, so a comment, a source or a task always points at the exact sentence it is about.
+              others, so a comment or a citation always points at the exact sentence it is about.
             </p>
           </RevealItem>
         </Reveal>
 
         <Reveal className="mt-14 grid gap-4 md:grid-cols-6" delay={0.1}>
           <Tile className="md:col-span-4" icon={<Users className="h-4 w-4" />} title="Live co-editing that never loses a word"
-            body="Cursors, selections and who-is-where on the outline. Edit offline and it merges when you reconnect.">
+            body="Cursors, comments and who is where, with every change copied to the server as you write. Keep typing through a dropped connection and it merges when you are back.">
             <PresenceDemo />
           </Tile>
           <Tile className="md:col-span-2" icon={<Quote className="h-4 w-4" />} title="Citations that write themselves"
-            body="Paste a DOI and the reference, in-text citation and bibliography appear in your style.">
+            body="Paste a DOI, arXiv or PubMed id, or import your .bib, and the citation and reference list appear in APA, Harvard, Chicago, IEEE or Vancouver.">
             <CitationDemo />
           </Tile>
-          <Tile className="md:col-span-2" icon={<BookOpenCheck className="h-4 w-4" />} title="Every claim, checked"
+          <Tile className="md:col-span-2" icon={<BookOpenCheck className="h-4 w-4" />} title="Every claim, checked" soon
             body="Uncited claims are highlighted, with matching sources suggested from your own library." />
           <Tile className="md:col-span-2" icon={<GitCompareArrows className="h-4 w-4" />} title="History you can trust"
-            body="Named versions and a word-level comparison between any two drafts.">
+            body="Named versions, an automatic one every ten minutes, and restores anyone can undo. Word-level comparison is next.">
             <HistoryDemo />
           </Tile>
-          <Tile className="md:col-span-2" icon={<ListChecks className="h-4 w-4" />} title="Tasks pinned to paragraphs"
+          <Tile className="md:col-span-2" icon={<ListChecks className="h-4 w-4" />} title="Tasks pinned to paragraphs" soon
             body="Assign “add spectra to 2.2” and it sits in the margin of section 2.2 until it is done." />
-          <Tile className="md:col-span-6" icon={<FileStack className="h-4 w-4" />} title="Papers, datasets and figures in one library"
-            body="Read and annotate PDFs together, preview CSVs, and drag any highlight into the draft as a cited quote.">
+          <Tile className="md:col-span-6" icon={<FileStack className="h-4 w-4" />} title="One shared library for the whole project"
+            body="Every co-author cites from the same sources, kept in sync live. Reading and annotating PDFs together is on the way.">
             <LibraryStrip />
           </Tile>
         </Reveal>
@@ -58,12 +58,15 @@ function Tile({
   icon,
   title,
   body,
+  soon,
   children,
 }: {
   className?: string;
   icon: React.ReactNode;
   title: string;
   body: string;
+  /** Planned, not built yet: say so plainly. */
+  soon?: boolean;
   children?: React.ReactNode;
 }) {
   return (
@@ -72,7 +75,10 @@ function Tile({
         <div className="relative flex h-full flex-col gap-4">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-iris-soft text-iris">{icon}</span>
           <div>
-            <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+            <h3 className="flex flex-wrap items-center gap-2 text-lg font-semibold tracking-tight">
+              {title}
+              {soon && <span className="rounded-full border border-line px-2 py-0.5 font-mono text-[10px] font-normal uppercase tracking-wider text-faint">Coming soon</span>}
+            </h3>
             <p className="mt-1.5 text-sm leading-relaxed text-muted">{body}</p>
           </div>
           {children && <div className="mt-auto">{children}</div>}
@@ -185,11 +191,11 @@ function HistoryDemo() {
 
 function LibraryStrip() {
   const items = [
-    ["PDF", "Lusher 2017 · Microplastics in the marine environment"],
-    ["CSV", "lagoon_counts_2026.csv · 1,284 rows"],
-    ["FIG", "Figure 3 · FTIR spectra"],
-    ["PDF", "Hidalgo-Ruz 2012 · Methods review"],
-    ["LINK", "github.com/lab/particle-pipeline"],
+    ["DOI", "Lusher 2017 · Microplastics in the marine environment"],
+    ["ARXIV", "Koelmans 2024 · Risk of microplastics, a meta-analysis"],
+    ["BOOK", "Andrady 2015 · Plastics and environmental sustainability"],
+    ["DOI", "Hidalgo-Ruz 2012 · Methods review"],
+    ["PUBMED", "Wright 2017 · Plastic and human health"],
   ];
   return (
     <div className="relative overflow-hidden [mask-image:linear-gradient(90deg,transparent,black_10%,black_90%,transparent)]">
