@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, FileType2, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { accentColor } from "@/components/app/accent";
 import { TimeAgo } from "@/components/app/time-ago";
 import { bibliographyOrder, formatReference, searchText, toBibtex } from "@/lib/library/format";
@@ -26,9 +26,11 @@ type Props = {
   createdBy: Record<string, string | null>;
   /** A source to scroll to and highlight, e.g. from a citation's card or the ⌘K palette. */
   focusId?: string;
+  /** The project file attached to each source that has one, by source id. */
+  attachedFiles?: Record<string, string>;
 };
 
-export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy, focusId }: Props) {
+export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy, focusId, attachedFiles = {} }: Props) {
   const [focused, setFocused] = useState(focusId ?? null);
   useEffect(() => {
     if (!focusId) return;
@@ -226,6 +228,14 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                     {copied === s.id ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied === s.id ? "Copied" : "Copy reference"}
                   </button>
+                  {attachedFiles[s.id] && (
+                    <Link
+                      href={`/projects/${project.id}/files/${attachedFiles[s.id]}`}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-muted transition-colors hover:bg-iris-soft hover:text-ink"
+                    >
+                      <FileType2 className="h-3.5 w-3.5" /> Open attached file
+                    </Link>
+                  )}
                   {(s.doi || s.url) && (
                     <a
                       href={s.doi ? `https://doi.org/${s.doi}` : s.url!}

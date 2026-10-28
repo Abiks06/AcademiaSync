@@ -341,7 +341,7 @@ export async function bibliography(input: { projectId: string; sourceIds: string
 }
 
 export type SourceDetailsResult =
-  | { ok: true; abstract: string | null; addedBy: string | null; addedAt: string }
+  | { ok: true; abstract: string | null; addedBy: string | null; addedAt: string; fileId: string | null }
   | { ok: false; error: string };
 
 /** What a citation's hover card shows beyond what the editor already has: the abstract, and who added the source. */
@@ -357,5 +357,7 @@ export async function sourceDetails(sourceId: string): Promise<SourceDetailsResu
     const profile = await auth.supabase.from("profiles").select("full_name").eq("id", data.created_by).maybeSingle();
     addedBy = data.created_by === auth.user.id ? "you" : (profile.data?.full_name ?? null);
   }
-  return { ok: true, abstract: data.abstract, addedBy, addedAt: data.created_at };
+  // A paper attached in Files, so the citation card can open it. Optional, like the abstract.
+  const file = await auth.supabase.from("project_files").select("id").eq("source_id", sourceId).order("created_at").limit(1).maybeSingle();
+  return { ok: true, abstract: data.abstract, addedBy, addedAt: data.created_at, fileId: file.error ? null : (file.data?.id ?? null) };
 }

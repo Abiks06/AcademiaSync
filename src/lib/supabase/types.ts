@@ -96,6 +96,19 @@ export type DocumentState = {
 
 export type DocumentCitation = { document_id: string; source_id: string; citations: number };
 
+export type ProjectFileRow = {
+  id: string;
+  project_id: string;
+  name: string;
+  mime_type: string;
+  size_bytes: number;
+  storage_path: string;
+  source_id: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ProjectInvite = {
   id: string;
   project_id: string;
@@ -130,6 +143,11 @@ export type Database = {
       project_invites: Table<ProjectInvite, Pick<ProjectInvite, "project_id" | "email"> & Partial<ProjectInvite>>;
       document_state: Table<DocumentState, DocumentState>;
       document_citations: Table<DocumentCitation, DocumentCitation>;
+      project_files: Table<
+        ProjectFileRow,
+        Pick<ProjectFileRow, "id" | "project_id" | "name" | "storage_path"> & Partial<Pick<ProjectFileRow, "source_id" | "uploaded_by">>,
+        Partial<Pick<ProjectFileRow, "name" | "source_id">>
+      >;
     };
     Views: { [_ in never]: never };
     Functions: {

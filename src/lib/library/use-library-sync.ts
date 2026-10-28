@@ -9,6 +9,11 @@ import { createClient } from "@/lib/supabase/client";
  * Row-level security decides which changes this browser hears about.
  */
 export function useLibrarySync(projectId: string, onChange: () => void) {
+  useProjectTableSync("sources", projectId, onChange);
+}
+
+/** The same for any project table that is in the realtime publication, e.g. project_files. */
+export function useProjectTableSync(table: "sources" | "project_files", projectId: string, onChange: () => void) {
   const latest = useRef(onChange);
   useEffect(() => {
     latest.current = onChange;
@@ -24,8 +29,8 @@ export function useLibrarySync(projectId: string, onChange: () => void) {
 
     const supabase = createClient();
     const channel = supabase
-      .channel(`sources:${projectId}`)
-      .on("postgres_changes", { event: "*", schema: "public", table: "sources", filter: `project_id=eq.${projectId}` }, refresh)
+      .channel(`${table}:${projectId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table, filter: `project_id=eq.${projectId}` }, refresh)
       .subscribe();
 
     // Coming back after a while catches up on anything missed; a quick glance away doesn't.
@@ -47,5 +52,5 @@ export function useLibrarySync(projectId: string, onChange: () => void) {
       window.removeEventListener("online", refresh);
       void supabase.removeChannel(channel);
     };
-  }, [projectId]);
+  }, [table, projectId]);
 }
