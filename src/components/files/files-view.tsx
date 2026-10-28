@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { ChevronLeft, Download, FileImage, FileSpreadsheet, FileText, FileType2, FolderOpen, Link2, Loader2, Presentation, Trash2, Upload } from "lucide-react";
+import { ChevronLeft, Download, FileImage, FilePen, FileSpreadsheet, FileText, FileType2, FolderOpen, Link2, Loader2, Presentation, Trash2, Upload } from "lucide-react";
 import { accentColor } from "@/components/app/accent";
 import { TimeAgo } from "@/components/app/time-ago";
 import { useToast } from "@/components/ui/toast";
@@ -12,6 +12,7 @@ import { useProjectTableSync } from "@/lib/library/use-library-sync";
 import { ACCEPT, FILE_LIMITS, FILES_BUCKET, KIND_NAME, contentTypeFor, fileKind, formatBytes, storagePath, type FileKind, type ProjectFile } from "@/lib/files/files";
 import type { Author } from "@/lib/library/types";
 import { attachFile, deleteFile, fileLink, listFiles, recordUpload } from "@/app/(app)/projects/[projectId]/files/actions";
+import { WordImportDialog } from "./word-import-dialog";
 
 type SourceOption = { id: string; title: string; authors: Author[]; year: number | null };
 
@@ -47,6 +48,7 @@ export function FilesView({ project, initialFiles, sources, names, userId, canEd
   const [files, setFiles] = useState(initialFiles);
   const [uploading, setUploading] = useState<{ id: string; name: string }[]>([]);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [importing, setImporting] = useState<ProjectFile | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,6 +290,11 @@ export function FilesView({ project, initialFiles, sources, names, userId, canEd
                       </span>
                     )
                   )}
+                  {canEdit && kind === "word" && /\.docx$/i.test(f.name) && (
+                    <button onClick={() => setImporting(f)} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-muted transition-colors hover:bg-iris-soft hover:text-ink">
+                      <FilePen className="h-3.5 w-3.5" aria-hidden /> Import as manuscript
+                    </button>
+                  )}
                   <button onClick={() => void download(f)} className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-muted transition-colors hover:bg-iris-soft hover:text-ink">
                     <Download className="h-3.5 w-3.5" aria-hidden /> Download
                   </button>
@@ -317,7 +324,7 @@ export function FilesView({ project, initialFiles, sources, names, userId, canEd
           <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-iris-soft text-iris"><FolderOpen className="h-5 w-5" /></span>
           <h2 className="mt-4 font-serif text-2xl">No files yet</h2>
           <p className="mx-auto mt-2 max-w-sm text-muted">
-            {canEdit ? "Drop papers, drafts or data here, or choose them from your computer. Up to 50 MB each." : "Files your team adds will appear here."}
+            {canEdit ? "Drop papers, drafts or data here, or choose them from your computer. Up to 50 MB each. A Word draft can become a manuscript, citations and all." : "Files your team adds will appear here."}
           </p>
           {canEdit && (
             <button onClick={() => input.current?.click()} className="mt-5 inline-flex h-10 items-center gap-2 rounded-full bg-ink px-5 text-sm font-semibold text-bg">
@@ -326,6 +333,7 @@ export function FilesView({ project, initialFiles, sources, names, userId, canEd
           )}
         </div>
       )}
+      <AnimatePresence>{importing && <WordImportDialog key={importing.id} file={importing} onClose={() => setImporting(null)} />}</AnimatePresence>
     </div>
   );
 }

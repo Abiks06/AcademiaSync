@@ -168,3 +168,30 @@ export async function lookupDoi(input: string): Promise<LookupResult> {
   if (!source) return { ok: false, error: "Crossref's record for that DOI has no title, so it can't be used. Fill the details in by hand." };
   return { ok: true, source: { ...source, doi: source.doi ?? doi } };
 }
+
+export type BibliographicMatch = { source: SourceFields; score: number };
+
+/**
+ * Crossref's best match for a reference as typed, with its relevance score, or null.
+ * Never throws: a failed search just means no suggestion.
+ */
+export async function searchBibliographic(reference: string): Promise<BibliographicMatch | null> {
+  const query = reference.replace(/\s+/g, " ").trim().slice(0, 1000);
+  if (query.length < 15) return null;
+  try {
+    const params = new URLSearchParams({ "query.bibliographic": query, rows: "1", select: "DOI,title,author,issued,container-title,volume,issue,page,publisher,type,URL,score" });
+    const response = await fetch(`https://api.crossref.org/works?${params}`, {
+      headers: { Accept: "application/json", "User-Agent": politeUserAgent() },
+      signal: AbortSignal.timeout(10_000),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const text = await readCapped(response);
+    const item = text ? (JSON.parse(text) as { message?: { items?: unknown[] } }).message?.items?.[0] : null;
+    const source = item ? mapCrossrefWork(item) : null;
+    const score = Number((item as { score?: unknown } | null)?.score);
+    return source && Number.isFinite(score) ? { source, score } : null;
+  } catch {
+    return null;
+  }
+}
