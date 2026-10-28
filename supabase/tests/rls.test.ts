@@ -206,6 +206,95 @@ describe("profiles", () => {
   });
 });
 
+describe("profile details and pictures", () => {
+  it("lets people describe themselves and finish the welcome", async () => {
+    await db.as(ada, "update public.profiles set position = 'PhD candidate', field = 'Marine ecology', onboarded_at = now() where id = $1", [ada]);
+    const { rows } = await db.as(ada, "select position, field, onboarded_at from public.profiles where id = $1", [ada]);
+    expect(rows[0]).toMatchObject({ position: "PhD candidate", field: "Marine ecology" });
+    expect(rows[0].onboarded_at).not.toBeNull();
+  });
+
+  it("refuses an over-long position", async () => {
+    await expectCode(db.as(ada, "update public.profiles set position = repeat('x', 200) where id = $1", [ada]), PG.checkViolation);
+  });
+
+  it("doesn't let anyone edit someone else's profile", async () => {
+    await db.as(eve, "update public.profiles set full_name = 'Hacked' where id = $1", [ada]);
+    const { rows } = await db.admin("select full_name from public.profiles where id = $1", [ada]);
+    expect(rows[0].full_name).not.toBe("Hacked");
+  });
+
+  it("keeps picture links out of clients' hands", async () => {
+    await expectCode(db.as(ada, "update public.profiles set avatar_url = 'https://tracker.example/p.gif' where id = $1", [ada]), PG.insufficientPrivilege);
+    await expectCode(db.as(ada, "update public.profiles set avatar_path = 'x' where id = $1", [ada]), PG.insufficientPrivilege);
+  });
+
+  it("uploads pictures only into one's own folder", async () => {
+    await db.as(ada, "insert into storage.objects (bucket_id, name) values ('avatars', $1)", [`${ada}/me-1.webp`]);
+    await expectCode(db.as(ada, "insert into storage.objects (bucket_id, name) values ('avatars', $1)", [`${ben}/me-1.webp`]), PG.insufficientPrivilege);
+    await expectCode(db.as(ada, "insert into storage.objects (bucket_id, name) values ('avatars', $1)", [`${ada}/../x.svg`]), PG.insufficientPrivilege);
+  });
+
+  it("sets a picture only from one's own finished upload", async () => {
+    await db.as(ada, "select public.set_my_avatar($1)", [`${ada}/me-1.webp`]);
+    const { rows } = await db.as(ben, "select avatar_path from public.profiles where id = $1", [ada]);
+    expect(rows[0].avatar_path).toBe(`${ada}/me-1.webp`);
+    // Someone else's picture, and one that was never uploaded.
+    await expectCode(db.as(ben, "select public.set_my_avatar($1)", [`${ada}/me-1.webp`]), "22023");
+    await expectCode(db.as(ada, "select public.set_my_avatar($1)", [`${ada}/missing.webp`]), "22023");
+    await expectCode(db.as(null, "select public.set_my_avatar(null)"), PG.insufficientPrivilege);
+  });
+
+  it("removes both pictures when cleared", async () => {
+    await db.admin("update public.profiles set avatar_url = 'https://lh3.googleusercontent.com/a/x' where id = $1", [ada]);
+    await db.as(ada, "select public.set_my_avatar(null)");
+    const { rows } = await db.admin("select avatar_path, avatar_url from public.profiles where id = $1", [ada]);
+    expect(rows[0]).toEqual({ avatar_path: null, avatar_url: null });
+  });
+});
+
+describe("deleting an account", () => {
+  it("says what would happen to each project", async () => {
+    const fay = await db.user("Fay");
+    const solo = await db.project(fay);
+    const shared = await db.project(fay, { [ben]: "author" });
+    const coOwned = await db.project(fay, { [ben]: "owner" });
+    const { rows } = await db.as<{ project_id: string; outcome: string }>(fay, "select project_id, outcome from public.account_deletion_preview()");
+    const outcome = Object.fromEntries(rows.map((r) => [r.project_id, r.outcome]));
+    expect(outcome).toEqual({ [solo]: "deleted", [shared]: "blocks", [coOwned]: "leaves" });
+  });
+
+  it("refuses while others depend on them as the only owner", async () => {
+    const gil = await db.user("Gil");
+    await db.project(gil, { [ben]: "author" });
+    const { rows } = await db.admin<{ email: string }>("select email from auth.users where id = $1", [gil]);
+    await expectCode(db.as(gil, "select public.delete_my_account($1)", [rows[0].email]), PG.raiseException);
+  });
+
+  it("needs the email address typed to confirm", async () => {
+    const hal = await db.user("Hal");
+    await expectCode(db.as(hal, "select public.delete_my_account('yes')"), "22023");
+  });
+
+  it("deletes the account, its solo projects, and leaves shared ones intact", async () => {
+    const ivy = await db.user("Ivy");
+    const solo = await db.project(ivy);
+    const shared = await db.project(ben, { [ivy]: "author" });
+    const doc = await db.document(shared, ivy);
+    const { rows } = await db.admin<{ email: string }>("select email from auth.users where id = $1", [ivy]);
+    await db.as(ivy, "select public.delete_my_account($1)", [` ${rows[0].email.toUpperCase()} `]);
+
+    const left = await db.admin("select (select count(*) from auth.users where id = $1)::int as users, (select count(*) from public.profiles where id = $1)::int as profiles, (select count(*) from public.projects where id = $2)::int as solo, (select count(*) from public.project_members where user_id = $1)::int as memberships", [ivy, solo]);
+    expect(left.rows[0]).toEqual({ users: 0, profiles: 0, solo: 0, memberships: 0 });
+    const kept = await db.admin("select created_by from public.documents where id = $1", [doc]);
+    expect(kept.rows[0].created_by).toBeNull();
+  });
+
+  it("can't be called signed out", async () => {
+    await expectCode(db.as(null, "select public.delete_my_account('x')"), PG.insufficientPrivilege);
+  });
+});
+
 describe("server-side document state", () => {
   const save = (doc: string, citations: unknown[], version?: { content?: unknown; label?: string; by?: string; gap?: string }) =>
     db.asService<{ id: string | null }>(

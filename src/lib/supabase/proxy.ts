@@ -3,7 +3,7 @@ import { createServerClient } from "@supabase/ssr";
 import { isSupabaseConfigured, getSupabaseEnv } from "@/lib/env";
 import { isSignedOutError } from "./auth-errors";
 
-const PROTECTED_PREFIXES = ["/projects"];
+const PROTECTED_PREFIXES = ["/projects", "/settings", "/welcome"];
 
 /** Refreshes the auth session on every request and guards signed-in areas. */
 export async function updateSession(request: NextRequest) {
