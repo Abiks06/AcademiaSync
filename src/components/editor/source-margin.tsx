@@ -230,7 +230,8 @@ export function SourceMargin({ editor, column }: { editor: Editor; column: RefOb
                   <span className="mt-0.5 block truncate text-xs text-sheet-muted">{shortAuthors(source)}</span>
                   {source.notes && (
                     <span
-                      className={`mt-2 border-l-2 border-amber/70 pl-2 font-serif text-[0.82rem] leading-snug text-sheet-muted italic ${lit ? "block" : "line-clamp-1"}`}
+                      title={source.notes}
+                      className="mt-2 line-clamp-1 border-l-2 border-amber/70 pl-2 font-serif text-[0.82rem] leading-snug text-sheet-muted italic"
                     >
                       {source.notes}
                     </span>
