@@ -115,7 +115,8 @@ export function Dialog({ onClose, labelledBy, label, variant = "center", classNa
     <div className={layout}>
       <motion.div
         aria-hidden
-        className="fixed inset-0 bg-black/45 backdrop-blur-[3px]"
+        // A side sheet keeps the manuscript readable behind it; centred dialogs take focus fully.
+        className={variant === "sheet" ? "fixed inset-0 bg-black/25" : "fixed inset-0 bg-black/45 backdrop-blur-[3px]"}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

@@ -25,6 +25,12 @@
   --success: #5ee0a0;
   /* Dims the page behind the tour's spotlight. */
   --scrim: rgb(4 6 20 / 0.62);
+  /* The manuscript: a lamp-lit sheet of paper on a dark desk. */
+  --sheet: #15151f;
+  --sheet-ink: #ece7dd;
+  --sheet-muted: #a7a196;
+  --sheet-line: rgb(236 231 221 / 0.1);
+  --lamp: rgb(255 232 190 / 0.075);
   color-scheme: dark;
 }
 
@@ -38,7 +44,7 @@
     --line-strong: rgb(40 48 110 / 0.2);
     --ink: #11152e;
     --muted: #535a7d;
-    --faint: #6b7194;
+    --faint: #5f6589;
     --iris: #4d58e8;
     --iris-strong: #3a44d1;
     --iris-soft: rgb(77 88 232 / 0.1);
@@ -48,6 +54,11 @@
     --danger: #c02f2f;
     --success: #0e7a47;
     --scrim: rgb(17 21 46 / 0.45);
+    --sheet: #fdfcf9;
+    --sheet-ink: #1b1c2a;
+    --sheet-muted: #62657a;
+    --sheet-line: rgb(27 28 42 / 0.09);
+    --lamp: rgb(255 255 255 / 0.7);
     color-scheme: light;
   }
 }
@@ -70,6 +81,10 @@
   --color-rose: var(--rose);
   --color-danger: var(--danger);
   --color-success: var(--success);
+  --color-sheet: var(--sheet);
+  --color-sheet-ink: var(--sheet-ink);
+  --color-sheet-muted: var(--sheet-muted);
+  --color-sheet-line: var(--sheet-line);
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
@@ -249,21 +264,110 @@ html:not(.js) [data-reveal] * {
 
 /* Manuscript editor ---------------------------------------------------------- */
 
+/*
+ * The sheet: the manuscript sits on paper, lit from above by a lamp in dark mode and by
+ * daylight in light mode. Switching theme fades the paper like turning the lamp on or off.
+ */
+.desk {
+  position: relative;
+  isolation: isolate;
+}
+.desk::before {
+  content: "";
+  position: absolute;
+  /* Kept inside the desk's own width, so the glow never makes the page scroll sideways. */
+  inset: -6rem 0 auto;
+  height: 46rem;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--lamp), transparent 72%);
+}
+.sheet {
+  position: relative;
+  background: var(--sheet);
+  color: var(--sheet-ink);
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1px var(--sheet-line),
+    0 1px 2px rgb(0 0 0 / 0.12),
+    0 12px 24px -12px rgb(0 0 0 / 0.28),
+    0 48px 90px -40px rgb(0 0 0 / 0.55);
+  transition: background-color 600ms var(--ease-out-expo), color 600ms var(--ease-out-expo), box-shadow 600ms var(--ease-out-expo);
+}
+/* Paper grain, too fine to notice, enough to stop the page looking like a flat panel. */
+.sheet::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.045;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+/* The running head along the top of the page, as in a printed journal. */
+.running-head {
+  font-family: var(--font-serif);
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  font-variant-caps: all-small-caps;
+  color: var(--sheet-muted);
+  border-bottom: 1px solid var(--sheet-line);
+}
+
 .manuscript-prose {
   min-height: 52dvh;
   outline: none;
   font-family: var(--font-serif);
   font-size: 1.1rem;
   line-height: 1.8;
-  color: var(--ink);
+  color: var(--sheet-ink);
   caret-color: var(--iris);
+  /* Book typography: old-style figures in running text, kerning and ligatures, quotes that hang. */
+  font-optical-sizing: auto;
+  font-kerning: normal;
+  font-variant-ligatures: common-ligatures;
+  font-variant-numeric: oldstyle-nums proportional-nums;
+  hanging-punctuation: first allow-end;
+  text-wrap: pretty;
 }
+.manuscript-prose :is(h1, h2, h3) { font-variant-numeric: lining-nums; }
+
+/*
+ * Ink drying: words a co-author has just typed arrive in their colour and settle into ink.
+ * Only the starting colour is given, so the animation ends on whatever the text normally is
+ * (a citation's iris, a quote's grey). The delay is set per word so a redrawn span picks up
+ * where it was.
+ */
+@keyframes ink-dry {
+  0%,
+  25% {
+    color: var(--wet);
+    text-shadow: 0 0 0.6em color-mix(in oklab, var(--wet) 70%, transparent);
+  }
+}
+.manuscript-prose .ink-wet {
+  animation: ink-dry 3200ms cubic-bezier(0.3, 0.5, 0.3, 1) backwards;
+}
+
+/* Every other use of the source being pointed at, in the text. */
+.manuscript-prose .citation.is-echo {
+  background: var(--iris-soft);
+  box-shadow: 0 0 0 3px var(--iris-soft);
+}
+@keyframes cite-flash {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--iris) 60%, transparent); background: color-mix(in oklab, var(--iris) 30%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+.manuscript-prose .citation.is-flash { animation: cite-flash 900ms var(--ease-out-expo); }
 .manuscript-prose .citation {
   color: var(--iris);
   border-radius: 0.35em;
+  /* The highlight reaches a little past the label, without moving it off the words around it. */
   padding: 0 0.15em;
+  margin: 0 -0.15em;
   cursor: default;
-  transition: background-color 0.15s;
+  transition: background-color 0.15s, box-shadow 0.2s;
 }
 @keyframes cite-pop {
   0% { opacity: 0; transform: scale(0.6); }
@@ -304,18 +408,18 @@ html:not(.js) [data-reveal] * {
 .manuscript-prose ul { list-style: disc; }
 .manuscript-prose ol { list-style: decimal; }
 .manuscript-prose li > p { margin: 0; }
-.manuscript-prose blockquote { border-left: 3px solid var(--iris); padding-left: 1em; color: var(--muted); font-style: italic; }
+.manuscript-prose blockquote { border-left: 3px solid var(--iris); padding-left: 1em; color: var(--sheet-muted); font-style: italic; }
 .manuscript-prose code { font-family: var(--font-mono); font-size: 0.85em; background: var(--iris-soft); border-radius: 0.35rem; padding: 0.1em 0.35em; }
-.manuscript-prose pre { font-family: var(--font-mono); font-size: 0.85em; background: var(--bg-elev); border: 1px solid var(--line); border-radius: 0.75rem; padding: 1rem; overflow-x: auto; }
+.manuscript-prose pre { font-family: var(--font-mono); font-size: 0.85em; background: color-mix(in oklab, var(--sheet-ink) 5%, transparent); border: 1px solid var(--sheet-line); border-radius: 0.75rem; padding: 1rem; overflow-x: auto; }
 .manuscript-prose pre code { background: none; padding: 0; }
-.manuscript-prose hr { border: 0; border-top: 1px solid var(--line-strong); margin: 2em 0; }
+.manuscript-prose hr { border: 0; border-top: 1px solid var(--sheet-line); margin: 2em 0; }
 .manuscript-prose a { color: var(--iris); text-decoration: underline; text-underline-offset: 3px; }
 .manuscript-prose p.is-editor-empty:first-child::before {
   content: attr(data-placeholder);
   float: left;
   height: 0;
   pointer-events: none;
-  color: var(--faint);
+  color: var(--sheet-muted);
 }
 
 /* Liveblocks comments and toolbars follow the app's palette in light and dark. */

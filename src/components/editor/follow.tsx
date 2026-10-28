@@ -381,7 +381,7 @@ export function MarginPresence({ editor, container }: { editor: Editor | null; c
               exit={{ opacity: 0, scale: 0.4, transition: EXIT }}
               transition={SPRING.gentle}
               className="pointer-events-auto absolute top-0 left-[clamp(1px,1.2vw,1.25rem)] grid h-[22px] w-[22px] place-items-center overflow-hidden rounded-full text-[9px] font-semibold text-bg shadow-md transition-[box-shadow] hover:brightness-110"
-              style={{ background: p.color, boxShadow: followed ? `0 0 0 2px var(--panel-solid), 0 0 0 4px ${p.color}` : undefined }}
+              style={{ background: p.color, boxShadow: followed ? `0 0 0 2px var(--sheet), 0 0 0 4px ${p.color}` : undefined }}
             >
               {p.avatar ? (
                 // eslint-disable-next-line @next/next/no-img-element

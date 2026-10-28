@@ -6,6 +6,7 @@ import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tip
 import { citationItems, citationMode } from "@/lib/library/citations";
 import { formatCitation } from "@/lib/library/styles";
 import { CitationNode } from "@/lib/editor/citation-node";
+import { clearHighlight, setHighlight, useHighlight } from "@/lib/editor/highlight";
 import { useSources } from "./sources-context";
 import { CitationCard } from "./citation-card";
 
@@ -45,11 +46,31 @@ function CitationView({ node, selected, editor, getPos }: NodeViewProps) {
   const [hovered, setHovered] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Pointing at a citation lights up its source everywhere: other uses, the margin, the spine.
+  const highlight = useHighlight();
+  const [pointing, setPointing] = useState(false);
+  const echo = !!highlight && !pointing && items.some((i) => i.sourceId === highlight.sourceId);
+  const point = () => {
+    setPointing(true);
+    if (anchor.current && items[0]) setHighlight({ sourceId: items[0].sourceId, from: "text", anchor: anchor.current });
+  };
+  const unpoint = () => {
+    setPointing(false);
+    if (anchor.current) clearHighlight(anchor.current);
+  };
+  useEffect(() => {
+    const el = anchor.current;
+    return () => {
+      if (el) clearHighlight(el);
+    };
+  }, []);
   const enter = () => {
+    point();
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setHovered(true), hovered ? 0 : OPEN_DELAY);
   };
   const leave = () => {
+    unpoint();
     clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       setHovered(false);
@@ -104,8 +125,9 @@ function CitationView({ node, selected, editor, getPos }: NodeViewProps) {
     <NodeViewWrapper
       as="span"
       ref={anchor}
-      className={`citation${selected ? " is-selected" : ""}${missing || deleted ? " is-missing" : ""}`}
+      className={`citation${selected ? " is-selected" : ""}${missing || deleted ? " is-missing" : ""}${echo ? " is-echo" : ""}`}
       data-citation=""
+      data-source-ids={items.map((i) => i.sourceId).join(" ")}
       onPointerEnter={(e: React.PointerEvent) => e.pointerType === "mouse" && enter()}
       onPointerLeave={(e: React.PointerEvent) => e.pointerType === "mouse" && leave()}
     >

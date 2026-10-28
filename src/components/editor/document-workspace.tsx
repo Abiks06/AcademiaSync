@@ -3,11 +3,11 @@
 import "@liveblocks/react-ui/styles.css";
 import "@liveblocks/react-tiptap/styles.css";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, ChevronLeft, Compass, Download, Eye, FileCode2, FileText, History, Lock, MoreHorizontal, PauseCircle, Plus, Printer, Quote, RefreshCw, WifiOff } from "lucide-react";
+import { BookMarked, Check, ChevronDown, ChevronLeft, Compass, Download, Eye, FileCode2, FileText, History, Lock, MoreHorizontal, PauseCircle, Plus, Printer, Quote, RefreshCw, WifiOff } from "lucide-react";
 import {
   ClientSideSuspense,
   LiveblocksProvider,
@@ -29,6 +29,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Placeholder } from "@tiptap/extensions";
 import type { Transaction } from "@tiptap/pm/state";
 import { ySyncPluginKey } from "y-prosemirror";
+import type * as Y from "yjs";
 import { roomIdFor } from "@/lib/liveblocks/rooms";
 import { DURATION, EXIT, SPRING } from "@/components/motion/tokens";
 import { Menu } from "@/components/ui/menu";
@@ -65,6 +66,10 @@ import { SyncStatus } from "./sync-status";
 import { VersionsPanel } from "./versions-panel";
 import { FollowBanner, FollowContext, MarginPresence, useFollowScroll, useFollowState, usePositionBroadcast } from "./follow";
 import { Tour } from "./tour";
+import { InkDrying, RemoteAuthor } from "@/lib/editor/ink-drying";
+import { SourceMargin } from "./source-margin";
+import { ProvenanceThreads } from "./provenance-threads";
+import { Spine } from "./spine";
 
 export type WorkspaceProps = {
   document: { id: string; title: string; status: DocumentStatus };
@@ -255,14 +260,19 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
   const followValue = useFollowState();
   const setFollowing = followValue.follow;
   const [touring, setTouring] = useState(false);
+  const [runningTitle, setRunningTitle] = useState(document.title);
+  const [runningStatus, setRunningStatus] = useState(document.status);
   const page = useRef<HTMLDivElement>(null);
+  const desk = useRef<HTMLDivElement>(null);
+  const marginColumn = useRef<HTMLDivElement>(null);
   const toast = useToast();
   useEffect(onOpened, [onOpened]);
   // Runs once, before the citations already in the text mount.
   useState(quietCitationsForAMoment);
 
   // The citation style is shared live: when one author switches it, every citation changes for everyone.
-  const doc = useMemo(() => getYjsProviderForRoom(room).getYDoc(), [room]);
+  const provider = useMemo(() => getYjsProviderForRoom(room), [room]);
+  const doc = useMemo(() => provider.getYDoc(), [provider]);
   const [style, setStyle] = useState<CitationStyle>(() => {
     const value = readStyle(doc);
     return isCitationStyle(value) ? value : "apa";
@@ -315,6 +325,29 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     [byId, checking, style, cited.ids, project.id, canCite],
   );
 
+  // Who made the latest change that arrived from elsewhere, so their new words can arrive in
+  // their colour. Yjs knows which client wrote it; the awareness state knows that client's colour.
+  const [remoteAuthor] = useState(() => new RemoteAuthor());
+  useEffect(() => {
+    const onTransaction = (tr: Y.Transaction) => {
+      if (tr.local) return;
+      let color: string | null = null;
+      for (const [client, clock] of tr.afterState) {
+        if ((tr.beforeState.get(client) ?? 0) >= clock) continue;
+        const state = provider.awareness.getStates().get(client) as { user?: { color?: unknown } } | undefined;
+        if (typeof state?.user?.color === "string") {
+          color = state.user.color;
+          break;
+        }
+      }
+      remoteAuthor.set(color);
+    };
+    doc.on("beforeObserverCalls", onTransaction);
+    return () => doc.off("beforeObserverCalls", onTransaction);
+  }, [doc, provider, remoteAuthor]);
+  // The text arriving as the manuscript opens isn't someone typing, so it comes in dry.
+  const [quietUntil] = useState(() => Date.now() + 2500);
+
   const openPicker = useRef<() => void>(() => {});
   const [slash, setSlash] = useState<SlashState>(null);
   // The "/" menu's plugin lives outside React; this plain object is how the two talk.
@@ -346,6 +379,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         onKeyDown: (event) => slashBridge.keys(event),
       }),
       SmartPaste.configure({ enabled: pasteBridge.enabled, onIdentifier: pasteBridge.handle }),
+      InkDrying.configure({ remoteColor: remoteAuthor.color, quietUntil: () => quietUntil }),
     ],
     editorProps: {
       attributes: { class: "manuscript-prose", "aria-label": "Manuscript text", spellcheck: "true" },
@@ -641,9 +675,9 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       />
 
       <header className="mt-6 mb-6">
-        <TitleField documentId={document.id} initial={document.title} canEdit={canEdit} />
+        <TitleField documentId={document.id} initial={document.title} canEdit={canEdit} onSaved={setRunningTitle} />
         <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-faint">
-          <StatusSelect documentId={document.id} initial={document.status} canEdit={canEdit} />
+          <StatusSelect documentId={document.id} initial={document.status} canEdit={canEdit} onSaved={setRunningStatus} />
           <StyleSelect style={style} canEdit={canEdit} onChange={(next) => writeStyle(doc, next)} />
           {!canEdit && (
             <span className="inline-flex items-center gap-1.5">
@@ -658,17 +692,26 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         </div>
       </header>
 
+      {/* The desk: the spine, the sheet of paper, and the living margin beside it. */}
       <motion.div
+        ref={desk}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: DURATION.base }}
-        className="grid grid-cols-[minmax(0,1fr)] items-start gap-6 xl:grid-cols-[minmax(0,1fr)_18rem]"
+        className="desk grid grid-cols-[minmax(0,1fr)] items-start gap-6 lg:grid-cols-[2.25rem_minmax(0,1fr)] xl:grid-cols-[2.25rem_minmax(0,1fr)_17rem]"
       >
-        {/* Writing happens on solid paper, not glass. */}
-        <div ref={page} data-tour="page" className="print-area relative min-h-[70dvh] rounded-2xl border border-line bg-panel-solid px-6 py-10 shadow-[0_30px_80px_-40px_rgb(0_0_0/0.55)] sm:px-14 sm:py-14">
+        {editor ? <Spine editor={editor} /> : <div className="hidden lg:block" />}
+        <div ref={page} data-tour="page" className="sheet print-area min-h-[70dvh] px-6 py-10 sm:px-14 sm:py-12">
           <MarginPresence editor={editor} container={page} />
           <div className="mx-auto max-w-[46rem]">
-            <h1 className="mb-8 hidden font-serif text-3xl print:block">{document.title}</h1>
+            {/* The running head, as along the top of a journal page. */}
+            <div aria-hidden className="running-head mb-9 flex items-baseline justify-between gap-6 pb-2.5 print:hidden">
+              <span className="min-w-0 truncate">{runningTitle}</span>
+              <span className="shrink-0">
+                {STATUS_LABEL[runningStatus]} · {STYLE_LABEL[style]}
+              </span>
+            </div>
+            <h1 className="mb-8 hidden font-serif text-3xl print:block">{runningTitle}</h1>
             <EditorContent editor={editor} />
             {editor && canEdit && <FloatingToolbar editor={editor} />}
             {editor && !canEdit && (
@@ -682,8 +725,13 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             <ReferencesSection bib={bib} style={style} />
           </div>
         </div>
-        <Comments editor={editor} />
+        <div ref={marginColumn} className="relative hidden xl:block">
+          {editor && <SourceMargin editor={editor} column={marginColumn} />}
+          <AnchoredComments editor={editor} />
+        </div>
+        {editor && <ProvenanceThreads editor={editor} root={desk} sheet={page} />}
       </motion.div>
+      <FloatingComments editor={editor} />
 
       <AnimatePresence>
         {versionsOpen && (
@@ -884,48 +932,69 @@ function AddSource({ projectId, onClose, onSaved }: { projectId: string; onClose
   return <SourceDialog projectId={projectId} requestId={requestKey} onClose={onClose} onSaved={onSaved} />;
 }
 
+/** The manuscript's citation style, picked from the app's own menu rather than a bare browser select. */
 function StyleSelect({ style, canEdit, onChange }: { style: CitationStyle; canEdit: boolean; onChange: (style: CitationStyle) => void }) {
   if (!canEdit) return <span className="rounded-full border border-line px-2.5 py-0.5">{STYLE_LABEL[style]}</span>;
   return (
-    <>
-      <label htmlFor="doc-style" className="sr-only">Citation style</label>
-      <select
-        id="doc-style"
-        value={style}
-        onChange={(e) => isCitationStyle(e.target.value) && onChange(e.target.value)}
-        title="Citation style for this manuscript"
-        className="rounded-full border border-line bg-bg-elev px-2.5 py-0.5 text-xs text-muted outline-none focus:border-iris"
-      >
-        {CITATION_STYLES.map((s) => (
-          <option key={s} value={s}>{STYLE_LABEL[s]}</option>
-        ))}
-      </select>
-    </>
+    <Menu
+      label={`Citation style: ${STYLE_LABEL[style]}`}
+      align="left"
+      triggerClassName="inline-flex items-center gap-1 rounded-full border border-line bg-bg-elev px-2.5 py-0.5 text-xs text-muted transition-colors hover:border-line-strong hover:text-ink"
+      trigger={<>{STYLE_LABEL[style]} <ChevronDown className="h-3 w-3" aria-hidden /></>}
+      items={CITATION_STYLES.map((s) => ({
+        label: STYLE_LABEL[s],
+        icon: s === style ? <Check className="h-4 w-4 text-iris" /> : <span className="h-4 w-4" />,
+        onSelect: () => onChange(s),
+      }))}
+    />
   );
 }
 
-function Comments({ editor }: { editor: Editor | null }) {
+/** Comment threads beside the text, in the margin on wide screens. */
+function AnchoredComments({ editor }: { editor: Editor | null }) {
+  const { threads } = useThreads();
+  if (!editor) return null;
+  return <AnchoredThreads editor={editor} threads={threads} className="relative z-[1]" style={{ width: "100%" }} />;
+}
+
+/** On narrower screens there is no margin, so threads open over the text instead. */
+function FloatingComments({ editor }: { editor: Editor | null }) {
   const { threads } = useThreads();
   if (!editor) return null;
   return (
-    <>
-      <div className="hidden xl:block">
-        <AnchoredThreads editor={editor} threads={threads} style={{ width: "100%" }} />
-      </div>
-      <div className="xl:hidden">
-        <FloatingThreads editor={editor} threads={threads} />
-      </div>
-    </>
+    <div className="xl:hidden">
+      <FloatingThreads editor={editor} threads={threads} />
+    </div>
   );
 }
 
-function TitleField({ documentId, initial, canEdit }: { documentId: string; initial: string; canEdit: boolean }) {
+function TitleField({ documentId, initial, canEdit, onSaved }: { documentId: string; initial: string; canEdit: boolean; onSaved: (title: string) => void }) {
   const [title, setTitle] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  const field = useRef<HTMLTextAreaElement>(null);
+
+  // A long title wraps onto more lines instead of running off the edge, on phones especially.
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
+  useEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(el.parentElement ?? el);
+    return () => observer.disconnect();
+  }, []);
 
   const commit = async () => {
-    const next = title.trim();
+    const next = title.replace(/\s+/g, " ").trim();
     if (next === saved) return setTitle(saved);
     if (!next) {
       setTitle(saved);
@@ -939,6 +1008,7 @@ function TitleField({ documentId, initial, canEdit }: { documentId: string; init
     if (result.ok) {
       setSaved(next);
       setError(null);
+      onSaved(next);
     } else {
       setTitle(saved);
       setError(result.error);
@@ -948,54 +1018,64 @@ function TitleField({ documentId, initial, canEdit }: { documentId: string; init
   return (
     <div className="min-w-0 flex-1 basis-80">
       <label htmlFor="doc-title" className="sr-only">Manuscript title</label>
-      <input
+      <textarea
         id="doc-title"
+        ref={field}
+        rows={1}
         value={title}
         readOnly={!canEdit}
         maxLength={200}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
         onBlur={() => void commit()}
-        onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
-        className="w-full rounded-lg bg-transparent px-1 py-0.5 font-serif text-3xl font-medium tracking-tight outline-none transition-shadow focus:shadow-[0_0_0_4px_var(--iris-soft)] sm:text-4xl"
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          // A title is one line: Enter saves it.
+          e.preventDefault();
+          e.currentTarget.blur();
+        }}
+        className="block w-full resize-none overflow-hidden rounded-lg bg-transparent px-1 py-0.5 font-serif text-3xl leading-tight font-medium tracking-tight text-balance outline-none transition-shadow focus:shadow-[0_0_0_4px_var(--iris-soft)] sm:text-4xl"
       />
       {error && <p role="alert" className="mt-1 px-1 text-sm text-danger">{error}</p>}
     </div>
   );
 }
 
-function StatusSelect({ documentId, initial, canEdit }: { documentId: string; initial: DocumentStatus; canEdit: boolean }) {
+function StatusSelect({ documentId, initial, canEdit, onSaved }: { documentId: string; initial: DocumentStatus; canEdit: boolean; onSaved: (status: DocumentStatus) => void }) {
   const [status, setStatus] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
   if (!canEdit) {
     return <span className="rounded-full bg-iris-soft px-2.5 py-0.5 font-medium text-iris">{STATUS_LABEL[status]}</span>;
   }
+  const choose = async (next: DocumentStatus) => {
+    if (next === status) return;
+    const previous = status;
+    setStatus(next);
+    onSaved(next);
+    const result = await updateDocumentDetails({ documentId, status: next }).catch(() => ({
+      ok: false as const,
+      error: "Couldn't reach AcademiaSync. Try again.",
+    }));
+    if (result.ok) setError(null);
+    else {
+      setStatus(previous);
+      onSaved(previous);
+      setError(result.error);
+    }
+  };
   return (
     <>
-      <label htmlFor="doc-status" className="sr-only">Status</label>
-      <select
-        id="doc-status"
-        value={status}
-        onChange={async (e) => {
-          const previous = status;
-          const next = e.target.value as DocumentStatus;
-          setStatus(next);
-          const result = await updateDocumentDetails({ documentId, status: next }).catch(() => ({
-            ok: false as const,
-            error: "Couldn't reach AcademiaSync. Try again.",
-          }));
-          if (result.ok) setError(null);
-          else {
-            setStatus(previous);
-            setError(result.error);
-          }
-        }}
-        className="rounded-full border border-line bg-iris-soft px-2.5 py-0.5 text-xs font-medium text-iris outline-none focus:border-iris"
-      >
-        {(Object.keys(STATUS_LABEL) as DocumentStatus[]).map((s) => (
-          <option key={s} value={s}>{STATUS_LABEL[s]}</option>
-        ))}
-      </select>
+      <Menu
+        label={`Status: ${STATUS_LABEL[status]}`}
+        align="left"
+        triggerClassName="inline-flex items-center gap-1 rounded-full border border-transparent bg-iris-soft px-2.5 py-0.5 text-xs font-medium text-iris transition-colors hover:border-iris/40"
+        trigger={<>{STATUS_LABEL[status]} <ChevronDown className="h-3 w-3" aria-hidden /></>}
+        items={(Object.keys(STATUS_LABEL) as DocumentStatus[]).map((s) => ({
+          label: STATUS_LABEL[s],
+          icon: s === status ? <Check className="h-4 w-4 text-iris" /> : <span className="h-4 w-4" />,
+          onSelect: () => choose(s),
+        }))}
+      />
       {error && <span role="alert" className="text-danger">{error}</span>}
     </>
   );
