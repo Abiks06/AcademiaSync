@@ -5,6 +5,7 @@ import { getLiveblocks, isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { canEditRole, documentIdFromRoom, userColor } from "@/lib/liveblocks/rooms";
 import { MIN_SCHEMA_VERSION, requestSchema } from "@/lib/editor/schema-version";
 import { restoreLostRoom } from "@/lib/documents/live-document";
+import { avatarSrc } from "@/lib/profile/avatar";
 
 /**
  * Hands out a short-lived Liveblocks token for one document room. The database
@@ -43,7 +44,7 @@ export async function POST(request: NextRequest) {
 
   const [{ data: membership, error: membershipError }, { data: profile }] = await Promise.all([
     supabase.from("project_members").select("role").eq("project_id", document.project_id).eq("user_id", user.id).maybeSingle(),
-    supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).maybeSingle(),
+    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
   ]);
   // A failed lookup is not the same as "not a member": let the client retry instead of locking them out.
   if (membershipError) return NextResponse.json({ error: "Couldn't check your access. Try again." }, { status: 503 });
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
     userInfo: {
       // Never the email address: everyone in the room would see it.
       name: profile?.full_name ?? "Collaborator",
-      avatar: profile?.avatar_url ?? undefined,
+      avatar: avatarSrc(profile) ?? undefined,
       color: userColor(user.id),
     },
   });

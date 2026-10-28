@@ -3,7 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search, Volume2, VolumeX, X } from "lucide-react";
+import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, UserRound, Loader2, LogOut, Plus, Quote, Search, Volume2, VolumeX, X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { EXIT, SPRING } from "@/components/motion/tokens";
@@ -214,6 +214,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
         },
       },
       { key: "all", group: "Actions", label: "All projects", keywords: "home dashboard", icon: <FolderKanban className="h-4 w-4" />, run: () => go("/projects") },
+      { key: "settings", group: "Actions", label: "Profile and account", keywords: "settings name picture avatar institution delete sign out", icon: <UserRound className="h-4 w-4" />, run: () => go("/settings") },
       {
         key: "sounds",
         group: "Actions",
