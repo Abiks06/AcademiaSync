@@ -8,7 +8,8 @@ import { EASE_OUT, MOTION } from "@/components/motion/tokens";
  * The ink seal pressed onto the page when a manuscript is marked final. It lands with a
  * little weight the moment it happens, and simply sits there when the page is opened later.
  */
-export function Seal({ shown }: { shown: boolean }) {
+/** `place` overrides where it sits on the page. */
+export function Seal({ shown, place = "top-16 right-4 sm:top-[5.5rem] sm:right-8" }: { shown: boolean; place?: string }) {
   const reduce = useReducedMotion();
   const id = useId().replace(/:/g, "");
   return (
@@ -18,7 +19,7 @@ export function Seal({ shown }: { shown: boolean }) {
         <motion.div
           key="seal"
           aria-hidden
-          className="pointer-events-none absolute top-16 right-4 z-10 h-24 w-24 text-rose mix-blend-multiply sm:top-[5.5rem] sm:right-8 sm:h-28 sm:w-28 dark:mix-blend-screen print:hidden"
+          className={`pointer-events-none absolute z-10 h-24 w-24 text-rose mix-blend-multiply sm:h-28 sm:w-28 dark:mix-blend-screen print:hidden ${place}`}
           initial={reduce ? { opacity: 0 } : { opacity: 0, scale: 1.7, rotate: -26 }}
           animate={{ opacity: 0.82, scale: 1, rotate: -12 }}
           exit={{ opacity: 0, scale: 0.92, transition: { duration: MOTION.quick } }}
