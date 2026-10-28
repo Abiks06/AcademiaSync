@@ -6,6 +6,7 @@ import { canEditRole } from "@/lib/liveblocks/rooms";
 import { LibraryView } from "@/components/library/library-view";
 import type { Source } from "@/lib/library/types";
 import { sanitizeAuthors } from "@/lib/library/authors";
+import { loadUsage } from "@/lib/library/usage";
 
 export const metadata: Metadata = { title: "Library" };
 
@@ -17,7 +18,7 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
   const { supabase, user } = await getUser();
   if (!user) notFound(); // the proxy already redirects signed-out visitors
 
-  const [projectResult, membershipResult, sourcesResult] = await Promise.all([
+  const [projectResult, membershipResult, sourcesResult, usage] = await Promise.all([
     supabase.from("projects").select("id, name, accent").eq("id", projectId).maybeSingle(),
     supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
     supabase
@@ -25,6 +26,8 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
       .select("id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, abstract, notes, created_by, created_at, updated_at, deleted_at")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false }),
+    // The library still opens if this fails; it just can't group by use.
+    loadUsage(supabase, projectId).catch(() => null),
   ]);
   const error = projectResult.error ?? membershipResult.error ?? sourcesResult.error;
   if (error) throw new Error(`Couldn't load the library: ${error.message}`);
@@ -52,6 +55,7 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
       userId={user.id}
       createdBy={createdBy}
       focusId={focus}
+      initialUsage={usage}
     />
   );
 }

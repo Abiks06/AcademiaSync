@@ -57,8 +57,9 @@ export function SlashMenu({ state, bindKeys }: { state: SlashState; bindKeys: (h
           key="slash"
           role="listbox"
           aria-label="Insert a block"
-          initial={{ opacity: 0, scale: 0.96, y: below ? -4 : 4 }}
-          animate={{ opacity: 1, scale: 1, y: 0, transition: SPRING.snappy }}
+          // Typed dozens of times an hour, so it appears at once.
+          initial={false}
+          animate={{ opacity: 1 }}
           exit={{ opacity: 0, scale: 0.98, transition: EXIT }}
           style={{
             position: "fixed",

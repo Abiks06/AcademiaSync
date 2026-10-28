@@ -3,13 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search, X } from "lucide-react";
+import { BookMarked, CornerDownLeft, FileText, FlaskConical, FolderKanban, Loader2, LogOut, Plus, Quote, Search, Volume2, VolumeX, X } from "lucide-react";
 import { Dialog } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toast";
 import { EXIT, SPRING } from "@/components/motion/tokens";
 import { paletteIndex, type PaletteIndex } from "@/app/(app)/palette-actions";
 import { createSampleProject } from "@/app/(app)/projects/sample-actions";
 import { rank } from "@/lib/palette/match";
+import { setSoundsOn, useSoundsOn } from "@/lib/sound";
 import { accentColor } from "./accent";
 
 /** Something the palette can do. Pages add their own while they're open, e.g. "Cite a source" in the editor. */
@@ -155,6 +156,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
     [onClose, router],
   );
 
+  const soundsOn = useSoundsOn();
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     for (const [key, { group, commands }] of Object.entries(registered)) {
@@ -213,6 +215,19 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
       },
       { key: "all", group: "Actions", label: "All projects", keywords: "home dashboard", icon: <FolderKanban className="h-4 w-4" />, run: () => go("/projects") },
       {
+        key: "sounds",
+        group: "Actions",
+        label: soundsOn ? "Turn sounds off" : "Turn sounds on",
+        hint: "A soft paper tap on save, a pen click when you cite",
+        keywords: "audio sound effects mute quiet",
+        icon: soundsOn ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />,
+        run: () => {
+          setSoundsOn(!soundsOn);
+          toast({ tone: "success", title: soundsOn ? "Sounds off" : "Sounds on" });
+          onClose();
+        },
+      },
+      {
         key: "sign-out",
         group: "Actions",
         label: "Sign out",
@@ -265,7 +280,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
       }
     }
     return out;
-  }, [registered, index, go, onClose, toast, sampleRequest]);
+  }, [registered, index, go, onClose, toast, sampleRequest, soundsOn]);
 
   const shown = useMemo(() => {
     const groups = new Map<string, Item[]>();
@@ -373,7 +388,7 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
                   role="group"
                   aria-label={group}
                   className="mb-1 overflow-hidden"
-                  initial={{ opacity: 0, height: 0 }}
+                  initial={false}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0, transition: EXIT }}
                   transition={SPRING.snappy}
@@ -391,11 +406,12 @@ function Palette({ onClose, registered }: { onClose: () => void; registered: Rec
                           role="option"
                           aria-selected={isActive}
                           aria-disabled={busy ? true : undefined}
-                          initial={{ opacity: 0, y: 4 }}
-                          animate={{ opacity: 1, y: 0, height: "auto" }}
+                          // Used many times a day, so results appear at once; only leaving rows fold away.
+                          initial={false}
+                          animate={{ opacity: 1, height: "auto" }}
                           // Rows that stop matching fold away instead of vanishing.
                           exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: EXIT }}
-                          transition={{ ...SPRING.snappy, delay: query ? 0 : Math.min(i, 10) * 0.015 }}
+                          transition={SPRING.snappy}
                           onPointerMove={() => !isActive && setActive(i)}
                           onClick={() => run(item)}
                           className="relative flex cursor-pointer items-center gap-3 overflow-hidden aria-disabled:cursor-wait rounded-xl px-3 py-2.5 text-sm"

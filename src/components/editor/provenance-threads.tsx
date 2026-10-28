@@ -4,6 +4,7 @@ import { useLayoutEffect, useState, type RefObject } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import type { Editor } from "@tiptap/react";
 import { useHighlight } from "@/lib/editor/highlight";
+import { EASE_OUT, MOTION } from "@/components/motion/tokens";
 
 type Thread = {
   key: string;
@@ -23,10 +24,13 @@ export function ProvenanceThreads({
   editor,
   root,
   sheet,
+  caption,
 }: {
   editor: Editor;
   root: RefObject<HTMLElement | null>;
   sheet: RefObject<HTMLElement | null>;
+  /** A line shown above the card while its thread draws, for the first citation. */
+  caption?: string | null;
 }) {
   const highlight = useHighlight();
   const reduce = useReducedMotion();
@@ -77,36 +81,51 @@ export function ProvenanceThreads({
   }, [highlight, editor, root, sheet]);
 
   if (threads.length === 0) return null;
+  const end = threads[0];
   return (
-    <svg aria-hidden className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible text-iris">
-      {threads.map((t, i) => (
-        <g key={t.key}>
-          <motion.path
-            d={t.d}
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={1.25}
-            strokeLinecap="round"
-            initial={{ pathLength: reduce ? 1 : 0, opacity: 0.2 }}
-            animate={{ pathLength: 1, opacity: 0.9 }}
-            transition={{
-              duration: reduce ? 0 : 0.36,
-              delay: reduce ? 0 : i * 0.04,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-          />
-          <circle cx={t.x1} cy={t.y1} r={2.5} fill="currentColor" />
-          <motion.circle
-            cx={t.x2}
-            cy={t.y2}
-            r={2.5}
-            fill="currentColor"
-            initial={{ opacity: reduce ? 1 : 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: reduce ? 0 : 0.28 }}
-          />
-        </g>
-      ))}
-    </svg>
+    <>
+      {caption && (
+        <motion.p
+          role="status"
+          className="pointer-events-none absolute z-10 w-64 -translate-y-full font-serif text-[0.85rem] leading-snug text-iris italic"
+          style={{ left: end.x2 + 10, top: end.y2 - 28 }}
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: reduce ? 0 : MOTION.scene, delay: reduce ? 0 : MOTION.draw, ease: EASE_OUT }}
+        >
+          {caption}
+        </motion.p>
+      )}
+      <svg aria-hidden className="pointer-events-none absolute inset-0 z-10 h-full w-full overflow-visible text-iris">
+        {threads.map((t, i) => (
+          <g key={t.key}>
+            <motion.path
+              d={t.d}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.25}
+              strokeLinecap="round"
+              initial={{ pathLength: reduce ? 1 : 0, opacity: 0.2 }}
+              animate={{ pathLength: 1, opacity: 0.9 }}
+              transition={{
+                duration: reduce ? 0 : 0.36,
+                delay: reduce ? 0 : i * 0.04,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+            />
+            <circle cx={t.x1} cy={t.y1} r={2.5} fill="currentColor" />
+            <motion.circle
+              cx={t.x2}
+              cy={t.y2}
+              r={2.5}
+              fill="currentColor"
+              initial={{ opacity: reduce ? 1 : 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: reduce ? 0 : 0.28 }}
+            />
+          </g>
+        ))}
+      </svg>
+    </>
   );
 }

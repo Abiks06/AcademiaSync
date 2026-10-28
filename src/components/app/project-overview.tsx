@@ -4,7 +4,7 @@ import { useActionState, useState, ViewTransition } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { BookMarked, FileText, Loader2, MoreHorizontal, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import { deleteDocument, deleteProject } from "@/app/(app)/projects/[projectId]/manage-actions";
@@ -13,6 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import type { DocumentStatus, ProjectRole } from "@/lib/supabase/types";
 import { Avatar } from "./app-shell";
 import { accentColor } from "./accent";
+import { ProjectCover } from "./project-cover";
 import { TimeAgo } from "./time-ago";
 import { MembersPanel, type Member, type PendingInvite } from "./members-panel";
 import { ConfirmDeleteDialog, ProjectDetailsDialog } from "./project-manage";
@@ -41,7 +42,6 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
   const [editing, setEditing] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const [deletingDoc, setDeletingDoc] = useState<{ id: string; title: string } | null>(null);
-  const reduce = useReducedMotion();
   const router = useRouter();
   const toast = useToast();
   const canManage = myRole === "owner" || myRole === "author";
@@ -54,12 +54,12 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
     <div className="mx-auto max-w-5xl">
       <ViewTransition name={`project-${project.id}`} share="morph" default="none">
       <header className="grain relative overflow-hidden rounded-3xl border border-line bg-bg-elev p-8">
-        <motion.div
-          aria-hidden
-          className="absolute -top-32 -left-20 h-72 w-72 rounded-full blur-3xl"
-          style={{ background: accent }}
-          animate={reduce ? { opacity: 0.3 } : { opacity: [0.25, 0.4, 0.25], scale: [1, 1.1, 1] }}
-          transition={reduce ? undefined : { duration: 8, repeat: Infinity }}
+        {/* The cover from the projects shelf, carried into the header. */}
+        <ProjectCover
+          seed={`${project.id}:${project.name}`}
+          accent={accent}
+          manuscripts={documents.length}
+          className="absolute inset-0 [mask-image:linear-gradient(100deg,transparent_15%,black_70%)]"
         />
         <div className="relative">
           {project.field && <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted">{project.field}</p>}

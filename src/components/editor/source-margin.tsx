@@ -208,7 +208,7 @@ export function SourceMargin({ editor, column }: { editor: Editor; column: RefOb
               initial={{ opacity: 0, x: 12, y: top }}
               animate={{ opacity: 1, x: lit ? -6 : 0, y: top }}
               exit={{ opacity: 0, x: 8, transition: EXIT }}
-              transition={reduce ? { duration: 0 } : SPRING.gentle}
+              transition={reduce ? { duration: 0 } : SPRING.glide}
               className={`pointer-events-auto absolute top-0 left-0 w-full rounded-xl border text-left text-sheet-ink transition-[border-color,box-shadow,background-color] duration-200 ${
                 lit
                   ? "border-iris bg-sheet shadow-[0_18px_40px_-18px_color-mix(in_oklab,var(--iris)_55%,transparent)]"
