@@ -14,7 +14,12 @@ import { fileSlug } from "@/lib/download";
 
 const SOURCE_COLUMNS = "id, project_id, kind, title, authors, year, container, volume, issue, pages, publisher, doi, url, notes, created_at, updated_at, deleted_at";
 
-/** Downloads the manuscript as Word (.docx) or Markdown, with citations and references in its style. */
+/**
+ * Downloads the manuscript as Word (.docx) or Markdown, with citations and references in its
+ * style: the one the person sees in the editor (`style`), or else the document's saved one.
+ * Citations of sources that are no longer in the library would print as "(?)", so unless the
+ * person chose to go ahead (`allowMissing=1`) the answer is a 409 saying how many there are.
+ */
 export async function GET(request: NextRequest, { params }: RouteContext<"/api/documents/[documentId]/export">) {
   const { documentId } = await params;
   if (!z.string().uuid().safeParse(documentId).success) return NextResponse.json({ error: "Unknown document." }, { status: 404 });
@@ -32,7 +37,8 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/d
 
   const manuscript = await readManuscript(documentId, supabase).catch(() => null);
   if (!manuscript) return NextResponse.json({ error: "Couldn't read the manuscript right now. Try again in a moment." }, { status: 503 });
-  const style = isCitationStyle(manuscript.style) ? manuscript.style : "apa";
+  const asked = request.nextUrl.searchParams.get("style");
+  const style = isCitationStyle(asked) ? asked : isCitationStyle(manuscript.style) ? manuscript.style : "apa";
 
   // In order of first citation, which numeric styles number by.
   const ids = [...citationCounts(manuscript.json).keys()];
@@ -42,6 +48,13 @@ export async function GET(request: NextRequest, { params }: RouteContext<"/api/d
   // Better no file than one that quietly lacks its references.
   if (sourcesError) return NextResponse.json({ error: "Couldn't read the references right now. Try again in a moment." }, { status: 503 });
   const byId = new Map((rows ?? []).map((r) => [r.id, { ...r, abstract: null, authors: sanitizeAuthors(r.authors) } as Source]));
+  const missing = ids.filter((id) => !byId.has(id)).length;
+  if (missing > 0 && request.nextUrl.searchParams.get("allowMissing") !== "1") {
+    return NextResponse.json(
+      { error: `${missing === 1 ? "1 citation points" : `${missing} citations point`} to a source that is no longer in the library, so ${missing === 1 ? "it" : "they"} would export as "(?)".`, missing },
+      { status: 409 },
+    );
+  }
   const ctx = citeContext(style, ids, (id) => byId.get(id));
   const cited = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
 
