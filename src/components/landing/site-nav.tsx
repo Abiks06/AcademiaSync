@@ -5,11 +5,7 @@ import { useState } from "react";
 import { motion, useMotionValueEvent, useScroll } from "motion/react";
 import { Logo } from "@/components/brand/logo";
 
-const LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#workflow", label: "Workflow" },
-  { href: "#ledger", label: "Contribution" },
-];
+const LINKS = [{ href: "#how-it-works", label: "How it works" }];
 
 export function SiteNav() {
   const { scrollY } = useScroll();

@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useActionState, useEffect, useState, ViewTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useFormStatus } from "react-dom";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FileText, FlaskConical, Loader2, Plus, Users, X } from "lucide-react";
 import { createProject, type FormState } from "@/app/(app)/projects/actions";
 import { createSampleProject } from "@/app/(app)/projects/sample-actions";
 import { useToast } from "@/components/ui/toast";
 import { TiltCard } from "@/components/motion/primitives";
-import { SPRING } from "@/components/motion/tokens";
+import { MOTION, SPRING } from "@/components/motion/tokens";
 import { Dialog } from "@/components/ui/dialog";
 import { ACCENTS, accentColor, type Accent } from "./accent";
+import { ProjectCover } from "./project-cover";
 import { TimeAgo } from "./time-ago";
 
 type ProjectCard = {
@@ -78,17 +79,18 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
               key={p.id}
               variants={{ hidden: { opacity: 0, y: 20, scale: 0.97 }, show: { opacity: 1, y: 0, scale: 1 } }}
             >
-              <Link href={`/projects/${p.id}`} className="block h-full">
+              <Link href={`/projects/${p.id}`} className="group block h-full">
                 <TiltCard className="glass h-full overflow-hidden rounded-2xl">
                   {/* Morphs into the project page's header when the card is opened. */}
                   <ViewTransition name={`project-${p.id}`} share="morph" default="none">
-                    <div
-                      className="h-24 w-full"
-                      style={{
-                        background: `radial-gradient(120% 140% at 0% 0%, ${accentColor(p.accent)}, transparent 60%), radial-gradient(100% 120% at 100% 100%, var(--iris-soft), transparent 70%)`,
-                        opacity: 0.55,
-                      }}
-                    />
+                    <div className="relative h-28 w-full overflow-hidden border-b border-line">
+                      <ProjectCover
+                        seed={`${p.id}:${p.name}`}
+                        accent={accentColor(p.accent)}
+                        manuscripts={p.documents}
+                        className="absolute inset-0 scale-100 transition-transform duration-[560ms] ease-out group-hover:scale-[1.06]"
+                      />
+                    </div>
                   </ViewTransition>
                   <div className="relative p-5">
                     {p.field && <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">{p.field}</p>}
@@ -113,40 +115,41 @@ export function ProjectGrid({ projects }: { projects: ProjectCard[] }) {
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
+  const reduce = useReducedMotion();
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.15 }}
-      className="mt-16 flex flex-col items-center rounded-3xl border border-dashed border-line-strong px-6 py-20 text-center"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: MOTION.scene }}
+      className="desk mt-12 flex flex-col items-center px-6 pt-6 pb-16 text-center"
     >
-      <div className="relative mb-8 h-24 w-24" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="glass absolute inset-0 rounded-2xl"
-            initial={{ rotate: 0, y: 0 }}
-            animate={{ rotate: (i - 1) * 12, y: i * -6 }}
-            transition={{ delay: 0.3 + i * 0.12, type: "spring", stiffness: 200, damping: 14 }}
+      {/* One blank sheet under the lamp, waiting for the first line. */}
+      <motion.div
+        aria-hidden
+        initial={reduce ? false : { opacity: 0, y: 24, rotate: -4 }}
+        animate={{ opacity: 1, y: 0, rotate: -1.5 }}
+        transition={{ ...SPRING.gentle, delay: 0.1 }}
+        className="sheet mb-10 h-56 w-44 px-5 pt-6 text-left"
+      >
+        <span className="running-head block border-b border-sheet-line pb-1.5 text-[8px]">Your first paper</span>
+        <span className="mt-5 flex items-center gap-0.5">
+          <span className="h-2 w-16 rounded-full bg-sheet-line" />
+          <motion.span
+            className="ml-0.5 h-3.5 w-px bg-sheet-ink"
+            animate={reduce ? undefined : { opacity: [1, 1, 0, 0] }}
+            transition={{ duration: 1.1, repeat: Infinity, times: [0, 0.5, 0.5, 1] }}
           />
-        ))}
-        <motion.span
-          className="absolute inset-0 grid place-items-center text-iris"
-          animate={{ scale: [1, 1.12, 1] }}
-          transition={{ duration: 2.4, repeat: Infinity }}
-        >
-          <Plus className="h-8 w-8" />
-        </motion.span>
-      </div>
+        </span>
+      </motion.div>
       <h2 className="font-serif text-3xl">Start your first project</h2>
       <p className="mt-2 max-w-md text-muted">
         A project holds one piece of research: its manuscripts, sources, files, tasks and the people
         writing it with you.
       </p>
       <div className="mt-6 flex flex-wrap justify-center gap-2">
-        <button onClick={onCreate} className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg transition-transform hover:scale-105">
+        <motion.button whileTap={{ scale: 0.97 }} onClick={onCreate} className="rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-bg">
           Create a project
-        </button>
+        </motion.button>
         <SampleButton />
       </div>
       <p className="mt-4 max-w-sm text-xs text-faint">

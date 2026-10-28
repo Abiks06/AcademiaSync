@@ -19,8 +19,17 @@ export function Hero() {
 
   return (
     <section ref={ref} className="grain relative overflow-hidden px-4 pt-36 pb-24 sm:px-6">
-      <Aurora y={glowY} />
-      <div className="hairline-grid pointer-events-none absolute inset-0" aria-hidden />
+      {/* The lamp over the desk, where the aurora and grid used to be. */}
+      <motion.div
+        aria-hidden
+        style={{ y: glowY }}
+        className="pointer-events-none absolute inset-x-0 -top-40 h-[56rem] bg-[radial-gradient(closest-side,var(--lamp),transparent_75%)]"
+      />
+      <motion.div
+        aria-hidden
+        style={{ y: glowY }}
+        className="pointer-events-none absolute top-[30%] left-1/2 h-[30rem] w-[60rem] -translate-x-1/2 bg-[radial-gradient(closest-side,var(--iris-soft),transparent_70%)]"
+      />
 
       <div className="relative mx-auto flex max-w-5xl flex-col items-center text-center">
         {/* The hero is painted complete by the server; CSS adds the rise (see .rise). */}
@@ -69,7 +78,7 @@ export function Hero() {
             <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
           </Link>
           <a
-            href="#features"
+            href="#how-it-works"
             className="glass inline-flex items-center rounded-full px-6 py-3 text-sm font-medium text-ink transition-colors hover:border-line-strong"
           >
             See how it works
@@ -87,27 +96,5 @@ export function Hero() {
         />
       </div>
     </section>
-  );
-}
-
-function Aurora({ y }: { y: ReturnType<typeof useTransform<number, number>> }) {
-  return (
-    <motion.div aria-hidden style={{ y }} className="pointer-events-none absolute inset-0">
-      <motion.div
-        className="absolute top-[-10%] left-[10%] h-[520px] w-[520px] rounded-full bg-iris/25 blur-[120px] will-change-transform"
-        animate={{ x: [0, 80, -40, 0], y: [0, 40, 80, 0] }}
-        transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.div
-        className="absolute top-[5%] right-[5%] h-[440px] w-[440px] rounded-full bg-teal/20 blur-[120px] will-change-transform"
-        animate={{ x: [0, -60, 30, 0], y: [0, 60, -20, 0] }}
-        transition={{ duration: 26, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.div
-        className="absolute top-[35%] left-[40%] h-[360px] w-[360px] rounded-full bg-rose/15 blur-[120px] will-change-transform"
-        animate={{ x: [0, 40, -60, 0], y: [0, -40, 20, 0] }}
-        transition={{ duration: 30, repeat: Infinity, ease: "easeInOut" }}
-      />
-    </motion.div>
   );
 }

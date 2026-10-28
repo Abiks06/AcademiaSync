@@ -70,6 +70,9 @@ import { InkDrying, RemoteAuthor } from "@/lib/editor/ink-drying";
 import { SourceMargin } from "./source-margin";
 import { ProvenanceThreads } from "./provenance-threads";
 import { Spine } from "./spine";
+import { Seal } from "./seal";
+import { useFirstCitation } from "./first-citation";
+import { play } from "@/lib/sound";
 
 export type WorkspaceProps = {
   document: { id: string; title: string; status: DocumentStatus };
@@ -393,6 +396,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       },
     },
   });
+  const firstCitationCaption = useFirstCitation(editor, cited.ids, quietUntil);
 
   // A role change arrives as new page data; the editor follows it without a reload.
   useEffect(() => {
@@ -513,6 +517,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
       const ids = [...cited.ids, ...items.map((i) => i.sourceId).filter((id) => !cited.ids.includes(id))];
       const label = formatCitation(items, mode, citeContext(style, ids, lookup));
       setPicker({ mode: "closed" });
+      play("click");
       if (at === undefined) editor?.chain().focus().insertCitation({ items, mode, label }).run();
       else editor?.chain().insertContentAt(at, [{ type: CITATION_NODE, attrs: { items, mode, label } }, { type: "text", text: " " }]).run();
     },
@@ -703,6 +708,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
         {editor ? <Spine editor={editor} /> : <div className="hidden lg:block" />}
         <div ref={page} data-tour="page" className="sheet print-area min-h-[70dvh] px-6 py-10 sm:px-14 sm:py-12">
           <MarginPresence editor={editor} container={page} />
+          <Seal shown={runningStatus === "final"} />
           <div className="mx-auto max-w-[46rem]">
             {/* The running head, as along the top of a journal page. */}
             <div aria-hidden className="running-head mb-9 flex items-baseline justify-between gap-6 pb-2.5 print:hidden">
@@ -729,7 +735,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
           {editor && <SourceMargin editor={editor} column={marginColumn} />}
           <AnchoredComments editor={editor} />
         </div>
-        {editor && <ProvenanceThreads editor={editor} root={desk} sheet={page} />}
+        {editor && <ProvenanceThreads editor={editor} root={desk} sheet={page} caption={firstCitationCaption} />}
       </motion.div>
       <FloatingComments editor={editor} />
 
@@ -1050,6 +1056,7 @@ function StatusSelect({ documentId, initial, canEdit, onSaved }: { documentId: s
   const choose = async (next: DocumentStatus) => {
     if (next === status) return;
     const previous = status;
+    if (next === "final") play("press");
     setStatus(next);
     onSaved(next);
     const result = await updateDocumentDetails({ documentId, status: next }).catch(() => ({

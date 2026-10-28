@@ -13,6 +13,7 @@ import { formatBibliography, type BibliographyEntry } from "@/lib/library/biblio
 import { isCitationStyle } from "@/lib/library/styles";
 import { IMPORT_LIMITS, parseReferences } from "@/lib/library/parse-references";
 import { SOURCE_KINDS, type Source, type SourceFields } from "@/lib/library/types";
+import { loadUsage, type LibraryUsage } from "@/lib/library/usage";
 
 export type SourceResult = { ok: true; source: Source } | { ok: false; error: string; conflict?: Source };
 export type DeleteResult = { ok: true; deletedAt: string | null } | { ok: false; error: string };
@@ -358,4 +359,18 @@ export async function sourceDetails(sourceId: string): Promise<SourceDetailsResu
     addedBy = data.created_by === auth.user.id ? "you" : (profile.data?.full_name ?? null);
   }
   return { ok: true, abstract: data.abstract, addedBy, addedAt: data.created_at };
+}
+
+export type LibraryUsageResult = ({ ok: true } & LibraryUsage) | { ok: false; error: string };
+
+/** How often each source in the project is cited, for grouping the library. */
+export async function libraryUsage(projectId: string): Promise<LibraryUsageResult> {
+  if (!uuid.safeParse(projectId).success) return { ok: false, error: "Unknown project." };
+  const auth = await actionUser();
+  if (!auth.ok) return auth;
+  try {
+    return { ok: true, ...(await loadUsage(auth.supabase, projectId)) };
+  } catch (e) {
+    return { ok: false, error: dbErrorMessage(e as Parameters<typeof dbErrorMessage>[0], "check where sources are cited") };
+  }
 }
