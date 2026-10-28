@@ -17,12 +17,14 @@ export type MenuItem = {
  * A button that opens a list of actions. Arrow keys move, Enter picks, Escape or a click
  * outside closes, and focus returns to the button.
  */
-export function Menu({ label, trigger, items, align = "right", className = "" }: {
+export function Menu({ label, trigger, items, align = "right", className = "", triggerClassName }: {
   label: string;
   trigger: ReactNode;
   items: MenuItem[];
   align?: "left" | "right";
   className?: string;
+  /** Replaces the trigger's usual pill styling, for a smaller trigger such as an inline picker. */
+  triggerClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<number | null>(null);
@@ -80,7 +82,10 @@ export function Menu({ label, trigger, items, align = "right", className = "" }:
             requestAnimationFrame(() => focusItem(e.key === "ArrowDown" ? 0 : -1));
           }
         }}
-        className="inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong aria-expanded:border-line-strong"
+        className={
+          triggerClassName ??
+          "inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong aria-expanded:border-line-strong"
+        }
       >
         {trigger}
       </button>
