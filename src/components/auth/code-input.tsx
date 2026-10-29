@@ -1,23 +1,28 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { SPRING } from "@/components/motion/tokens";
 
+/** Supabase sends 6 to 8 digits, depending on the project's "Email OTP length" setting. */
+const MIN = 6;
+const MAX = 8;
+/** After a typed (not pasted) 6th or 7th digit, how long to wait in case more are coming. */
+const SETTLE_MS = 1200;
+
 /**
- * Six boxes for the code from the email. Underneath is one ordinary input, so pasting,
- * the phone's "From Messages/Mail" suggestion and password managers all just work.
- * Calls `onComplete` once all six digits are in.
+ * Boxes for the code from the email: six, growing to eight if the code is longer. Underneath
+ * is one ordinary input, so pasting, the phone's "From Mail" suggestion and password
+ * managers all just work. Calls `onComplete` once the whole code is in: at once for a paste
+ * or an 8-digit code, or after a short pause once 6 or 7 digits have been typed.
  */
 export function CodeInput({
   name,
-  length = 6,
   disabled,
   invalid,
   onComplete,
 }: {
   name: string;
-  length?: number;
   disabled?: boolean;
   invalid?: boolean;
   onComplete?: (code: string) => void;
@@ -25,7 +30,11 @@ export function CodeInput({
   const [value, setValue] = useState("");
   const [focused, setFocused] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+  const settle = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reduce = useReducedMotion();
+  const length = Math.max(MIN, value.length);
+
+  useEffect(() => () => clearTimeout(settle.current), []);
 
   return (
     <div className="relative" onClick={() => ref.current?.focus()}>
@@ -34,9 +43,12 @@ export function CodeInput({
         name={name}
         value={value}
         onChange={(e) => {
-          const digits = e.target.value.replace(/\D/g, "").slice(0, length);
+          const digits = e.target.value.replace(/\D/g, "").slice(0, MAX);
+          const pasted = digits.length - value.length > 1;
           setValue(digits);
-          if (digits.length === length) onComplete?.(digits);
+          clearTimeout(settle.current);
+          if (digits.length === MAX || (pasted && digits.length >= MIN)) onComplete?.(digits);
+          else if (digits.length >= MIN) settle.current = setTimeout(() => onComplete?.(digits), SETTLE_MS);
         }}
         onFocus={(e) => {
           setFocused(true);
@@ -48,8 +60,8 @@ export function CodeInput({
         inputMode="numeric"
         autoComplete="one-time-code"
         pattern="\d*"
-        maxLength={length}
-        aria-label={`${length}-digit code from the email`}
+        maxLength={MAX}
+        aria-label="Sign-in code from the email"
         aria-invalid={invalid || undefined}
         autoFocus
         className="absolute inset-0 z-10 h-full w-full cursor-text bg-transparent text-transparent caret-transparent opacity-0 outline-none selection:bg-transparent"
