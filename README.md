@@ -46,7 +46,7 @@ truth per piece of data, and nothing that fakes success.**
    Then, under **Authentication → Emails → Templates**, paste `supabase/templates/magic-link.html`
    into **Magic link** and `supabase/templates/confirm-signup.html` into **Confirm signup**. They add
    the 6-digit code and a link to `/auth/confirm`, which works in any browser and can't be used up by
-   a university mail scanner. Keep **Email OTP length** at 6.
+   a university mail scanner. The code box accepts any **Email OTP length** from 6 to 8.
 6. Create a free [Liveblocks](https://liveblocks.io) project and copy its **secret key**.
 7. Copy `.env.example` to `.env.local` and fill in the project URL, publishable key and Liveblocks secret key. In production,
    also set `NEXT_PUBLIC_SITE_URL` to the public address so sign-in links point there.
