@@ -59,6 +59,7 @@ import { SlashMenu } from "./slash-menu";
 import { Citation, quietCitationsForAMoment } from "./citation";
 import { CitationPicker } from "./citation-picker";
 import { ReferencesPanel } from "./references-panel";
+import { useExport } from "./use-export";
 import { ReferencesSection } from "./references-section";
 import { SourcesContext } from "./sources-context";
 import { PresenceStack } from "./presence";
@@ -436,7 +437,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
     return () => clearTimeout(timer);
   }, [tourAsked]);
 
-  const download = useExport(document.id, document.title);
+  const download = useExport(document.id, document.title, style);
   const mod = useModKey();
   const selfId = useSelf((me) => me.id);
   const people = useOthers((others) => {
@@ -660,7 +661,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
               <BookMarked className="h-4 w-4 text-iris" /> References
               <RollingCount value={cited.ids.length} />
             </button>
-            <ExportMenu documentId={document.id} title={document.title} className="hidden md:block" />
+            <ExportMenu documentId={document.id} title={document.title} style={style} className="hidden md:block" />
             <button
               onClick={() => setVersionsOpen(true)}
               data-tour="history"
@@ -671,6 +672,7 @@ function Workspace({ document, project, canEdit, sources: initialSources, onOpen
             <MoreMenu
               documentId={document.id}
               title={document.title}
+              style={style}
               onReferences={() => setReferencesOpen(true)}
               onHistory={() => setVersionsOpen(true)}
               className="md:hidden"
@@ -787,34 +789,9 @@ function FollowScroll({ editor }: { editor: Editor | null }) {
   return null;
 }
 
-/** Downloads an export without leaving the editor; a failure is a toast, never a raw error page. */
-function useExport(documentId: string, title: string) {
-  const toast = useToast();
-  return async (format: "docx" | "md") => {
-    try {
-      const res = await fetch(`/api/documents/${documentId}/export?format=${format}`);
-      if (!res.ok) {
-        const { error } = (await res.json().catch(() => ({}))) as { error?: string };
-        toast({ tone: "error", title: "Export didn't work", description: error ?? "Try again in a moment." });
-        return;
-      }
-      const blob = await res.blob();
-      const named = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(res.headers.get("Content-Disposition") ?? "")?.[1];
-      const link = window.document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = named ? decodeURIComponent(named) : `${title || "manuscript"}.${format}`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(link.href), 10_000);
-      toast({ tone: "success", title: format === "docx" ? "Word file downloaded" : "Markdown downloaded" });
-    } catch {
-      toast({ tone: "error", title: "Couldn't reach AcademiaSync", description: "Check your connection and try again." });
-    }
-  };
-}
-
 /** Word and Markdown come from the server with citations and references in the document's style. */
-function ExportMenu({ documentId, title, className }: { documentId: string; title: string; className?: string }) {
-  const download = useExport(documentId, title);
+function ExportMenu({ documentId, title, style, className }: { documentId: string; title: string; style: CitationStyle; className?: string }) {
+  const download = useExport(documentId, title, style);
   return (
     <Menu
       label="Export"
@@ -830,14 +807,15 @@ function ExportMenu({ documentId, title, className }: { documentId: string; titl
 }
 
 /** On phones, everything but Cite folds into one menu so the bar stays on one row. */
-function MoreMenu({ documentId, title, onReferences, onHistory, className }: {
+function MoreMenu({ documentId, title, style, onReferences, onHistory, className }: {
   documentId: string;
   title: string;
+  style: CitationStyle;
   onReferences: () => void;
   onHistory: () => void;
   className?: string;
 }) {
-  const download = useExport(documentId, title);
+  const download = useExport(documentId, title, style);
   return (
     <Menu
       label="More actions"

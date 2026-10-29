@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { BookMarked, Check, ChevronLeft, Copy, Download, ExternalLink, FileType2, Loader2, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import { accentColor } from "@/components/app/accent";
 import { TimeAgo } from "@/components/app/time-ago";
 import { bibliographyOrder, formatReference, searchText, toBibtex } from "@/lib/library/format";
@@ -30,9 +30,11 @@ type Props = {
   focusId?: string;
   /** How often each source is cited; null if that couldn't be worked out. */
   initialUsage: LibraryUsage | null;
+  /** The project file attached to each source that has one, by source id. */
+  attachedFiles?: Record<string, string>;
 };
 
-export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy, focusId, initialUsage }: Props) {
+export function LibraryView({ project, initialSources, canEdit, canDeleteAll, userId, createdBy: initialCreatedBy, focusId, initialUsage, attachedFiles = {} }: Props) {
   const [focused, setFocused] = useState(focusId ?? null);
   useEffect(() => {
     if (!focusId) return;
@@ -197,6 +199,16 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               )}
+              {attachedFiles[s.id] && (
+                <Link
+                  href={`/projects/${project.id}/files/${attachedFiles[s.id]}`}
+                  aria-label="Open attached file"
+                  title="Open attached file"
+                  className="grid h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-iris-soft hover:text-ink"
+                >
+                  <FileType2 className="h-3.5 w-3.5" />
+                </Link>
+              )}
               {canEdit && (
                 <IconButton label="Edit" onClick={() => setDialog({ editing: s })}>
                   <Pencil className="h-3.5 w-3.5" />
@@ -273,6 +285,11 @@ export function LibraryView({ project, initialSources, canEdit, canDeleteAll, us
                     {copied === s.id ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
                     {copied === s.id ? "Copied" : "Copy reference"}
                   </button>
+                  {attachedFiles[s.id] && (
+                    <Link href={`/projects/${project.id}/files/${attachedFiles[s.id]}`} className={`${action} sm:hidden`}>
+                      <FileType2 className="h-3.5 w-3.5" /> Open attached file
+                    </Link>
+                  )}
                   {canEdit && (
                     <button onClick={() => setDialog({ editing: s })} className={action}>
                       <Pencil className="h-3.5 w-3.5" /> Edit details

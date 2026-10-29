@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { BookMarked, FileText, Loader2, MoreHorizontal, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
+import { BookMarked, FileText, FolderOpen, Loader2, MoreHorizontal, Pencil, Plus, Trash2, UserPlus } from "lucide-react";
 import { createDocument, type FormState } from "@/app/(app)/projects/actions";
 import { deleteDocument, deleteProject } from "@/app/(app)/projects/[projectId]/manage-actions";
 import { Menu, type MenuItem } from "@/components/ui/menu";
@@ -92,6 +92,12 @@ export function ProjectOverview({ project, documents, members, invites, myRole, 
               className="ml-auto inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
             >
               <BookMarked className="h-4 w-4 text-iris" /> Library
+            </Link>
+            <Link
+              href={`/projects/${project.id}/files`}
+              className="ml-2 inline-flex h-9 items-center gap-2 rounded-full border border-line bg-bg-elev/70 px-3.5 text-sm transition-colors hover:border-line-strong"
+            >
+              <FolderOpen className="h-4 w-4 text-iris" /> Files
             </Link>
             {projectActions.length > 0 && (
               <Menu label="Project actions" trigger={<MoreHorizontal className="h-4 w-4" />} items={projectActions} className="ml-2" />

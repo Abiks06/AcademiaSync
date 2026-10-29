@@ -19,15 +19,15 @@ describe("author-date styles", () => {
     expect(formatCitation([{ sourceId: "m", locator: "45" }], "parenthetical", ctx("apa"))).toBe("(Hidalgo-Ruz et al., 2012, p. 45)");
   });
 
-  it("groups several sources with prefixes and page ranges", () => {
+  it("groups several sources, in APA's alphabetical order, with prefixes and page ranges", () => {
     expect(
       formatCitation([{ sourceId: "l", prefix: "see" }, { sourceId: "m", locator: "3-7" }], "parenthetical", ctx("apa")),
-    ).toBe("(see Lusher, 2017; Hidalgo-Ruz et al., 2012, pp. 3–7)");
+    ).toBe("(Hidalgo-Ruz et al., 2012, pp. 3–7; see Lusher, 2017)");
   });
 
   it("follows Harvard and Chicago punctuation", () => {
     expect(formatCitation([{ sourceId: "p", locator: "4" }], "parenthetical", ctx("harvard"))).toBe("(Lusher and Hollman, 2017, p. 4)");
-    expect(formatCitation([{ sourceId: "m", locator: "4" }], "parenthetical", ctx("chicago"))).toBe("(Hidalgo-Ruz, Gutow, and Thompson 2012, 4)");
+    expect(formatCitation([{ sourceId: "m", locator: "4" }], "parenthetical", ctx("chicago"))).toBe("(Hidalgo-Ruz et al. 2012, 4)");
   });
 
   it("adds a and b to same-author, same-year works", () => {

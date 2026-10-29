@@ -18,7 +18,7 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
   const { supabase, user } = await getUser();
   if (!user) notFound(); // the proxy already redirects signed-out visitors
 
-  const [projectResult, membershipResult, sourcesResult, usage] = await Promise.all([
+  const [projectResult, membershipResult, sourcesResult, usage, filesResult] = await Promise.all([
     supabase.from("projects").select("id, name, accent").eq("id", projectId).maybeSingle(),
     supabase.from("project_members").select("role").eq("project_id", projectId).eq("user_id", user.id).maybeSingle(),
     supabase
@@ -28,6 +28,8 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
       .order("created_at", { ascending: false }),
     // The library still opens if this fails; it just can't group by use.
     loadUsage(supabase, projectId).catch(() => null),
+    // Papers attached to sources. Optional: the library still works if this can't be read.
+    supabase.from("project_files").select("id, source_id").eq("project_id", projectId).not("source_id", "is", null).order("created_at"),
   ]);
   const error = projectResult.error ?? membershipResult.error ?? sourcesResult.error;
   if (error) throw new Error(`Couldn't load the library: ${error.message}`);
@@ -46,8 +48,12 @@ export default async function LibraryPage({ params, searchParams }: PageProps<"/
     updated_at: r.updated_at, deleted_at: r.deleted_at,
   }));
 
+  const attached: Record<string, string> = {};
+  for (const f of filesResult.error ? [] : (filesResult.data ?? [])) if (f.source_id && !attached[f.source_id]) attached[f.source_id] = f.id;
+
   return (
     <LibraryView
+      attachedFiles={attached}
       project={project}
       initialSources={sources}
       canEdit={canEditRole(membership.role)}

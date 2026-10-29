@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { connect, PG } from "./db";
+import { randomUUID } from "node:crypto";
 
 let db: Awaited<ReturnType<typeof connect>>;
 let ada: string, ben: string, cy: string, dee: string, eve: string;
@@ -425,5 +426,86 @@ describe("invite links", () => {
     await expectCode(db.as(gus, "select public.accept_project_invite($1)", [rows[0].token]), PG.raiseException);
     const left = await db.admin("select 1 from public.project_invites where project_id = $1", [project]);
     expect(left.rows).toHaveLength(0);
+  });
+});
+
+describe("project files", () => {
+  const upload = (user: string, project: string, fileId: string, name = "paper.pdf", size = 1000) =>
+    db.as(user, "insert into storage.objects (bucket_id, name, metadata) values ('project-files', $1, $2)", [
+      `${project}/${fileId}/${name}`,
+      JSON.stringify({ size, mimetype: "application/pdf" }),
+    ]);
+  const addRow = (user: string, project: string, fileId: string, name = "paper.pdf", extra: { client?: string } = {}) =>
+    db.as(user, "insert into public.project_files (id, project_id, name, storage_path, uploaded_by) values ($1, $2, $3, $4, $5) returning size_bytes, mime_type", [
+      fileId,
+      project,
+      name,
+      `${project}/${fileId}/${name}`,
+      extra.client ?? user,
+    ]);
+
+  it("lets editors upload into their project's folder and records Storage's size and type", async () => {
+    const id = randomUUID();
+    await upload(cy, projectId, id);
+    const { rows } = await addRow(cy, projectId, id);
+    expect(rows[0]).toMatchObject({ size_bytes: "1000", mime_type: "application/pdf" });
+  });
+
+  it("refuses uploads from commenters and outsiders, or outside a project folder", async () => {
+    await expectCode(upload(dee, projectId, randomUUID()), PG.insufficientPrivilege);
+    await expectCode(upload(eve, projectId, randomUUID()), PG.insufficientPrivilege);
+    await expectCode(
+      db.as(ada, "insert into storage.objects (bucket_id, name, metadata) values ('project-files', $1, '{}')", [`not-a-project/${randomUUID()}/x.pdf`]),
+      PG.insufficientPrivilege,
+    );
+  });
+
+  it("only lists files that were really uploaded", async () => {
+    await expectCode(addRow(ada, projectId, randomUUID()), PG.checkViolation);
+  });
+
+  it("doesn't let a row point into another project's folder", async () => {
+    const id = randomUUID();
+    await upload(eve, otherProject, id);
+    await expectCode(
+      db.as(ada, "insert into public.project_files (id, project_id, name, storage_path, uploaded_by) values ($1, $2, 'x', $3, $4)", [id, projectId, `${otherProject}/${id}/paper.pdf`, ada]),
+      PG.checkViolation,
+    );
+  });
+
+  it("hides files and their contents from outsiders", async () => {
+    const id = randomUUID();
+    await upload(ada, projectId, id);
+    await addRow(ada, projectId, id);
+    expect((await db.as(eve, "select id from public.project_files where id = $1", [id])).rows).toHaveLength(0);
+    expect((await db.as(eve, "select id from storage.objects where name like $1", [`${projectId}/%`])).rows).toHaveLength(0);
+    expect((await db.as(dee, "select id from public.project_files where id = $1", [id])).rows).toHaveLength(1);
+  });
+
+  it("attaches files only to sources in the same project", async () => {
+    const id = randomUUID();
+    await upload(ada, projectId, id);
+    await addRow(ada, projectId, id);
+    const { rows: theirs } = await db.as<{ id: string }>(eve, "insert into public.sources (project_id, title, created_by) values ($1, 'Theirs', $2) returning id", [otherProject, eve]);
+    await expectCode(db.as(ada, "update public.project_files set source_id = $1 where id = $2", [theirs[0].id, id]), PG.checkViolation);
+    const { rows: ours } = await db.as<{ id: string }>(ada, "insert into public.sources (project_id, title, created_by) values ($1, 'Ours', $2) returning id", [projectId, ada]);
+    await db.as(ada, "update public.project_files set source_id = $1 where id = $2", [ours[0].id, id]);
+  });
+
+  it("doesn't let clients change a file's recorded size", async () => {
+    const id = randomUUID();
+    await upload(ada, projectId, id);
+    await addRow(ada, projectId, id);
+    await expectCode(db.as(ada, "update public.project_files set size_bytes = 1 where id = $1", [id]), PG.insufficientPrivilege);
+  });
+
+  it("lets owners and the uploader delete files, but not other contributors", async () => {
+    const id = randomUUID();
+    await upload(ben, projectId, id);
+    await addRow(ben, projectId, id);
+    const c = await db.as(cy, "delete from public.project_files where id = $1", [id]);
+    expect(c.rowCount).toBe(0);
+    const owner = await db.as(ada, "delete from public.project_files where id = $1", [id]);
+    expect(owner.rowCount).toBe(1);
   });
 });

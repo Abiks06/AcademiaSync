@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type 
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { AnimatePresence, motion } from "motion/react";
-import { AlertTriangle, BookMarked, Check, Copy, ExternalLink, Pencil } from "lucide-react";
+import { AlertTriangle, BookMarked, Check, Copy, ExternalLink, FileType2, Pencil } from "lucide-react";
 import { formatReference } from "@/lib/library/format";
 import { KIND_LABEL, type Source } from "@/lib/library/types";
 import { sourceDetails, type SourceDetailsResult } from "@/app/(app)/projects/[projectId]/library/actions";
@@ -242,6 +242,14 @@ function SourceBlock({ source: s, projectId, divider }: { source: Source; projec
         >
           <BookMarked className="h-3 w-3" aria-hidden /> Open in library
         </Link>
+        {info?.fileId && (
+          <Link
+            href={`/projects/${projectId}/files/${info.fileId}`}
+            className="inline-flex items-center gap-1.5 rounded-full border border-line px-2.5 py-1 text-xs text-muted transition-colors hover:border-iris hover:text-ink"
+          >
+            <FileType2 className="h-3 w-3" aria-hidden /> Open attached file
+          </Link>
+        )}
         {doiHref && (
           <a
             href={doiHref}

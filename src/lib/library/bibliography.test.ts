@@ -36,3 +36,18 @@ describe("formatBibliography", () => {
     expect(sanitizeCslHtml('<div class="csl-entry">A <i>b</i> <script>x</script><img src=x onerror=alert(1)><a href="javascript:1">c</a></div>')).toBe("<span>A <i>b</i> xc</span>");
   });
 });
+
+describe("locales", () => {
+  const titled = { ...base, id: "q", title: "Many two", authors: [{ family: "Lee", given: "Amy" }, { family: "Choi", given: "Dan" }, { family: "Park", given: "Cy" }], year: 2019, container: "J. Test", volume: "1", issue: null, pages: "1-10", doi: null };
+
+  it("gives Harvard British quote marks", () => {
+    const [entry] = formatBibliography([titled], "harvard");
+    expect(entry.text).toContain("‘Many two’");
+    expect(entry.text).not.toMatch(/[“”]/);
+  });
+
+  it("keeps American quote marks for IEEE", () => {
+    const [entry] = formatBibliography([titled], "ieee");
+    expect(entry.text).toContain("“Many two,”");
+  });
+});
