@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { authErrorCode, safeNext, type SignInErrorCode } from "@/lib/auth-redirect";
+import { destinationAfterSignIn, NEXT_COOKIE } from "@/lib/auth/after-sign-in";
 
 /** Exchanges the one-time code from a magic link or OAuth sign-in for a session. */
 export async function GET(request: NextRequest) {
@@ -15,13 +16,18 @@ export async function GET(request: NextRequest) {
   };
 
   if (!code) {
-    // Supabase sends expired or reused links back here with an error instead of a code.
+    // Supabase sends expired or reused links back here with an error instead of a code,
+    // and Google or Microsoft send people back with access_denied when they press Cancel.
     const reason = searchParams.get("error_code");
-    return fail(reason === "otp_expired" ? "link_expired" : "link_incomplete");
+    if (reason === "otp_expired") return fail("link_expired");
+    if (searchParams.get("error") === "access_denied") return fail("cancelled");
+    return fail("link_incomplete");
   }
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) return fail(authErrorCode(error));
-  return NextResponse.redirect(new URL(next, origin));
+  const response = NextResponse.redirect(new URL(await destinationAfterSignIn(supabase, data.user.id, next), origin));
+  response.cookies.delete(NEXT_COOKIE);
+  return response;
 }

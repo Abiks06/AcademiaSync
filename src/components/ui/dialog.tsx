@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { SPRING } from "@/components/motion/tokens";
+import { MOTION, SPRING } from "@/components/motion/tokens";
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -99,7 +99,8 @@ export function Dialog({ onClose, labelledBy, label, variant = "center", classNa
       : variant === "drawer"
         ? { initial: { x: "-100%" }, animate: { x: 0 }, exit: { x: "-100%" }, transition: SPRING.smooth }
       : variant === "top"
-        ? { initial: { opacity: 0, y: -16, scale: 0.97 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: -10, scale: 0.98 }, transition: SPRING.snappy }
+        ? // The palette and the citation picker open many times a day, so they appear at once.
+          { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: MOTION.instant } }
         : { initial: { opacity: 0, y: 24, scale: 0.96 }, animate: { opacity: 1, y: 0, scale: 1 }, exit: { opacity: 0, y: 16, scale: 0.97 }, transition: SPRING.smooth };
 
   const layout =
@@ -115,7 +116,8 @@ export function Dialog({ onClose, labelledBy, label, variant = "center", classNa
     <div className={layout}>
       <motion.div
         aria-hidden
-        className="fixed inset-0 bg-black/45 backdrop-blur-[3px]"
+        // A side sheet keeps the manuscript readable behind it; centred dialogs take focus fully.
+        className={variant === "sheet" ? "fixed inset-0 bg-black/25" : "fixed inset-0 bg-black/45 backdrop-blur-[3px]"}
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}

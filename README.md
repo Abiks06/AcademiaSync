@@ -12,7 +12,7 @@ truth per piece of data, and nothing that fakes success.**
 | --- | --- |
 | App | Next.js 16 (App Router), React 19, Tailwind CSS 4 |
 | Motion | [Motion](https://motion.dev) (`motion/react`), respecting reduced-motion settings |
-| Auth | Supabase Auth: Google, Microsoft and email magic links |
+| Auth | Supabase Auth: Google, Microsoft, and email links with a 6-digit code |
 | Database | Supabase Postgres with row-level security on every table |
 | Live editing | Liveblocks + Yjs through Tiptap; access decided by the database |
 
@@ -43,6 +43,10 @@ truth per piece of data, and nothing that fakes success.**
 5. Before inviting real users, add your own email service under **Authentication → Emails → SMTP
    settings** (Resend, Postmark, SendGrid…). Supabase's built-in sender only delivers to members of
    your Supabase organization and is heavily rate-limited.
+   Then, under **Authentication → Emails → Templates**, paste `supabase/templates/magic-link.html`
+   into **Magic link** and `supabase/templates/confirm-signup.html` into **Confirm signup**. They add
+   the 6-digit code and a link to `/auth/confirm`, which works in any browser and can't be used up by
+   a university mail scanner. Keep **Email OTP length** at 6.
 6. Create a free [Liveblocks](https://liveblocks.io) project and copy its **secret key**.
 7. Copy `.env.example` to `.env.local` and fill in the project URL, publishable key and Liveblocks secret key. In production,
    also set `NEXT_PUBLIC_SITE_URL` to the public address so sign-in links point there.

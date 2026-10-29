@@ -131,12 +131,21 @@ function SidebarContent({
         </nav>
       </LayoutGroup>
 
-      <div className="mt-auto flex items-center gap-3 rounded-xl border border-line p-2.5">
-        <Avatar name={user.name} url={user.avatarUrl} />
-        <div className="min-w-0 flex-1 text-xs">
-          <p className="truncate font-medium text-ink">{user.name}</p>
-          <p className="truncate text-faint">{user.email}</p>
-        </div>
+      <div className={`mt-auto flex items-center gap-1 rounded-xl border p-1.5 transition-colors ${pathname === "/settings" ? "border-line-strong bg-iris-soft" : "border-line"}`}>
+        <Link
+          href="/settings"
+          onClick={onNavigate}
+          aria-current={pathname === "/settings" ? "page" : undefined}
+          title="Profile and account"
+          className="group flex min-w-0 flex-1 items-center gap-3 rounded-lg p-1 transition-colors hover:bg-iris-soft"
+        >
+          <Avatar name={user.name} url={user.avatarUrl} />
+          <span className="min-w-0 flex-1 text-xs">
+            <span className="block truncate font-medium text-ink">{user.name}</span>
+            <span className="block truncate text-faint group-hover:hidden">{user.email}</span>
+            <span className="hidden truncate text-iris group-hover:block">Profile and account</span>
+          </span>
+        </Link>
         <form action="/auth/sign-out" method="post">
           <button aria-label="Sign out" title="Sign out" className="rounded-lg p-1.5 text-muted transition-colors hover:bg-iris-soft hover:text-ink">
             <LogOut className="h-4 w-4" />

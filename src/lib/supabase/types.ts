@@ -18,6 +18,12 @@ export type Profile = {
   avatar_url: string | null;
   institution: string | null;
   orcid: string | null;
+  position: string | null;
+  field: string | null;
+  /** A picture the person uploaded, as a path in the public avatars bucket (see avatarSrc). */
+  avatar_path: string | null;
+  /** When the first-run welcome was finished or skipped. */
+  onboarded_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -180,6 +186,12 @@ export type Database = {
       };
       citation_index_complete: { Args: { p_project: string }; Returns: boolean };
       member_document_state: { Args: { p_document: string }; Returns: { ydoc: string; revision: number }[] };
+      set_my_avatar: { Args: { p_path: string | null }; Returns: undefined };
+      account_deletion_preview: {
+        Args: Record<string, never>;
+        Returns: { project_id: string; project_name: string; outcome: "deleted" | "blocks" | "leaves" }[];
+      };
+      delete_my_account: { Args: { p_confirm: string }; Returns: undefined };
     };
     Enums: { project_role: ProjectRole; document_status: DocumentStatus };
     CompositeTypes: { [_ in never]: never };

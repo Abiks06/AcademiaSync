@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getUser } from "@/lib/supabase/server";
 import { AuthUnavailableError } from "@/lib/supabase/auth-errors";
 import { userColor } from "@/lib/liveblocks/rooms";
+import { avatarSrc } from "@/lib/profile/avatar";
 import { restoreVersion, saveLiveDocument } from "@/lib/documents/live-document";
 import { isLiveblocksConfigured } from "@/lib/liveblocks/server";
 import { dbErrorMessage } from "@/lib/supabase/db-errors";
@@ -190,16 +191,16 @@ export async function listVersions(documentId: string): Promise<{ versions: Vers
 export async function resolveUsers(userIds: string[]) {
   // Liveblocks matches results to userIds by position, so keep one slot per requested id.
   const valid = [...new Set(userIds.filter((id) => uuid.safeParse(id).success))].slice(0, 50);
-  const byId = new Map<string, { full_name: string | null; avatar_url: string | null }>();
+  const byId = new Map<string, { full_name: string | null; avatar_url: string | null; avatar_path?: string | null }>();
   if (valid.length > 0) {
     const auth = await session();
     if (auth.ok) {
-      const { data } = await auth.supabase.from("profiles").select("id, full_name, avatar_url").in("id", valid);
+      const { data } = await auth.supabase.from("profiles").select("*").in("id", valid);
       (data ?? []).forEach((p) => byId.set(p.id, p));
     }
   }
   return userIds.map((id) => {
     const p = byId.get(id);
-    return p ? { name: p.full_name ?? "Collaborator", avatar: p.avatar_url ?? undefined, color: userColor(id) } : undefined;
+    return p ? { name: p.full_name ?? "Collaborator", avatar: avatarSrc(p) ?? undefined, color: userColor(id) } : undefined;
   });
 }

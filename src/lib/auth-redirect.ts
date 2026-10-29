@@ -31,6 +31,7 @@ export const SIGN_IN_ERRORS = {
   unavailable: "We couldn't reach the sign-in service. Please try again in a moment.",
   google_off: "Google sign-in isn't available yet. Use your email instead.",
   azure_off: "Microsoft sign-in isn't available yet. Use your email instead.",
+  cancelled: "Sign-in was cancelled. Choose a way to continue.",
   failed: "Sign-in didn't work. Request a new link and try again.",
 } as const;
 export type SignInErrorCode = keyof typeof SIGN_IN_ERRORS;
@@ -53,4 +54,18 @@ export function friendlyAuthError(error: AuthError) {
   const code = authErrorCode(error);
   // Other API errors (an invalid email, say) are about what the person typed, so say what Supabase said.
   return code === "failed" ? error.message : SIGN_IN_ERRORS[code];
+}
+
+/** Messages for a typed sign-in code, which the person can simply retype. */
+export function codeErrorMessage(error: AuthError) {
+  const code = authErrorCode(error);
+  if (code === "link_expired" || code === "failed") return "That code didn't match, or it has expired. Check the newest email, or send a new code.";
+  if (code === "rate_limited") return "Too many tries. Wait a minute, then try the code again.";
+  return SIGN_IN_ERRORS[code];
+}
+
+/** Seconds Supabase asks us to wait before sending another email ("…after 42 seconds"), if it said. */
+export function retryAfterSeconds(error: AuthError) {
+  const match = /after (\d+) seconds?/i.exec(error.message);
+  return match ? Math.min(3600, Number(match[1])) : null;
 }
