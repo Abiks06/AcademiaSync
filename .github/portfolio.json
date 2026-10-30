@@ -1,0 +1,24 @@
+{
+  "tracks": [
+    "fullstack"
+  ],
+  "metrics": [
+    {
+      "value": "3",
+      "label": "kinds of link that become a citation when pasted: DOI, arXiv, PubMed"
+    }
+  ],
+  "pipeline": [
+    "Tiptap editor",
+    "Yjs + Liveblocks (live co-writing)",
+    "Room access checked against the database",
+    "Supabase Postgres (RLS on every table)"
+  ],
+  "decisions": [
+    {
+      "choice": "One system per job and one source of truth per piece of data",
+      "over": "v1's in-memory data and faked sign-in",
+      "because": "In v1, accounts and documents disappeared on every restart."
+    }
+  ]
+}
