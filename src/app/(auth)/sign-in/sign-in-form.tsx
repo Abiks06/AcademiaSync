@@ -263,7 +263,7 @@ function SentView({
       </motion.div>
       <h1 className="font-serif text-4xl font-medium tracking-tight">Check your inbox</h1>
       <p className="mt-3 text-muted">
-        We sent a sign-in link and a 6-digit code to <span className="font-medium text-ink [overflow-wrap:anywhere]">{email}</span>. Use
+        We sent a sign-in link and a code to <span className="font-medium text-ink [overflow-wrap:anywhere]">{email}</span>. Use
         whichever is easier: the code works on any device.
       </p>
 
